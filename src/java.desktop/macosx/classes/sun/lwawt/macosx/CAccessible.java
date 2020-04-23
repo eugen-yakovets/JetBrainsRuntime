@@ -124,7 +124,7 @@ class CAccessible extends CFRetainedResource implements Accessible {
                 } else if (name.equals(ACCESSIBLE_TABLE_MODEL_CHANGED)) {
                     valueChanged(ptr);
                 } else if (name.equals(ACCESSIBLE_ACTIVE_DESCENDANT_PROPERTY)) {
-                    if (newValue instanceof AccessibleContext) {
+                    if (newValue == null || newValue instanceof AccessibleContext) {
                         activeDescendant = (AccessibleContext)newValue;
                     }
                 } else if (name.equals(ACCESSIBLE_STATE_PROPERTY)) {
