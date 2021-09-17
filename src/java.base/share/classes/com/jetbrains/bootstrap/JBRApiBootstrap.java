@@ -32,7 +32,8 @@ public class JBRApiBootstrap {
     private JBRApiBootstrap() {}
 
     private static final String[] MODULES = {
-            "com.jetbrains.base.JBRApiModule"
+            "com.jetbrains.base.JBRApiModule",
+            "com.jetbrains.desktop.JBRApiModule"
     };
 
     public static synchronized Object bootstrap(MethodHandles.Lookup outerLookup, Class<?> jbrApiClass) {

@@ -135,6 +135,8 @@ module java.base {
     // additional qualified exports may be inserted at build time
     // see make/gensrc/GenModuleInfo.gmk
 
+    exports com.jetbrains.internal to
+            java.desktop;
     exports com.sun.crypto.provider to
         jdk.crypto.cryptoki;
     exports sun.invoke.util to
