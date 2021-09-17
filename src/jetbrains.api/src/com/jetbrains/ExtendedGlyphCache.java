@@ -21,16 +21,10 @@
  * questions.
  */
 
-package com.jetbrains.desktop;
+package com.jetbrains;
 
-import com.jetbrains.internal.JBRApi;
+import java.awt.*;
 
-import java.lang.invoke.MethodHandles;
-
-public class JBRApiModule {
-    static {
-        JBRApi.registerModule(MethodHandles.lookup(), JBRApiModule.class.getModule()::addExports)
-                .service("com.jetbrains.ExtendedGlyphCache", null)
-                    .withStatic("getSubpixelResolution", "sun.font.FontUtilities");
-    }
+public interface ExtendedGlyphCache {
+    Dimension getSubpixelResolution();
 }
