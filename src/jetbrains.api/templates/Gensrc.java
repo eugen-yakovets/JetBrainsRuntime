@@ -68,6 +68,7 @@ public class Gensrc {
     }
 
     private static class JBR {
+
         private static void generate() throws IOException {
             String jbrFileName = "com/jetbrains/JBR.java";
             Path output = gensrc.resolve(jbrFileName);
@@ -102,11 +103,11 @@ public class Gensrc {
         private static String generateMethods(Service service) {
             return """
                     private static class $__Holder {
-                        private static final $ INSTANCE = api == null ? null : api.getService($.class);
+                        private static final $ INSTANCE = api != null ? api.getService($.class) : null;
                     }
                     /**
                      * @return true if current runtime has implementation for all methods in {@link $}
-                     * (can fully implement given service).
+                     * and its dependencies (can fully implement given service).
                      * @see #get$()
                      */
                     public static boolean is$Supported() {
@@ -119,7 +120,9 @@ public class Gensrc {
                     public static $ get$() {
                         return $__Holder.INSTANCE;
                     }
-                    """.replaceAll("\\$", service.name).replace("<JAVADOC>", service.javadoc);
+                    """
+                    .replaceAll("\\$", service.name)
+                    .replace("<JAVADOC>", service.javadoc);
         }
 
         private record Service(String name, String javadoc) {}

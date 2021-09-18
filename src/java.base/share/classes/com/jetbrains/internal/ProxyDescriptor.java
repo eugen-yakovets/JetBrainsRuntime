@@ -34,12 +34,14 @@ class ProxyDescriptor {
     final Map<String, StaticMethodMapping> staticMethods = new HashMap<>();
     final MethodHandles.Lookup target;
     final MethodHandles.Lookup apiModule;
+    final String[] dependencies;
 
-    ProxyDescriptor(MethodHandles.Lookup apiModule, String interfaceName, String target, boolean service) {
+    ProxyDescriptor(MethodHandles.Lookup apiModule, String interfaceName, String target, boolean service, String[] dependencies) {
         this.apiModule = apiModule;
         this.interfaceName = interfaceName;
         this.service = service;
         this.target = target == null ? null : look(target);
+        this.dependencies = dependencies;
     }
 
     private MethodHandles.Lookup look(String clazz) {

@@ -59,7 +59,7 @@ public class JBR {
 
     /**
      * @return any found implementation of given {@code interFace},
-     * even if runtime cannot implement all of its methods.
+     * even if runtime cannot implement all of its methods, or methods of its dependencies.
      * Therefore, some methods of returned service may throw {@link UnsupportedOperationException}
      */
     public static <T> T getServicePartialSupport(Class<T> interFace) {

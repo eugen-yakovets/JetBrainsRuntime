@@ -34,8 +34,8 @@ import static java.lang.invoke.MethodHandles.Lookup;
 
 public class JBRApi {
 
-    private static final Map<String, ProxyDescriptor> proxyDescriptors = new HashMap<>();
-    private static final ConcurrentMap<Class<?>, Proxy> proxies = new ConcurrentHashMap<>();
+    private static final Map<String, ProxyDescriptor> proxyDescriptorByInterfaceName = new HashMap<>();
+    private static final ConcurrentMap<Class<?>, Proxy> proxyByInterface = new ConcurrentHashMap<>();
 
     public static Lookup outerLookup;
 
@@ -47,7 +47,7 @@ public class JBRApi {
     @SuppressWarnings("unchecked")
     public static <T> T getService(Class<T> interFace) {
         Proxy p = getProxy(interFace);
-        return p.areAllMethodsImplemented() ? (T) p.getInstance() : null;
+        return p.isFullySupported() ? (T) p.getInstance() : null;
     }
 
     @SuppressWarnings("unchecked")
@@ -55,10 +55,18 @@ public class JBRApi {
         return (T) getProxy(interFace).getInstance();
     }
 
+    static Proxy findProxy(String interfaceName) {
+        try {
+            return getProxy(outerLookup.findClass(interfaceName));
+        } catch (ClassNotFoundException | IllegalAccessException ignore) {
+            return Proxy.NULL;
+        }
+    }
+
     private static Proxy getProxy(Class<?> interFace) {
-        return proxies.computeIfAbsent(interFace, i -> {
-            ProxyDescriptor descriptor = proxyDescriptors.get(interFace.getName());
-            return descriptor == null ? Proxy.NULL : new Proxy(descriptor, i);
+        return proxyByInterface.computeIfAbsent(interFace, i -> {
+            ProxyDescriptor descriptor = proxyDescriptorByInterfaceName.get(interFace.getName());
+            return descriptor != null ? new Proxy(descriptor, i) : Proxy.NULL;
         });
     }
 
@@ -71,19 +79,19 @@ public class JBRApi {
             this.lookup = lookup;
         }
 
-        private ModuleRegistry addProxy(String interfaceName, String target, boolean singleton) {
-            lastProxy = new ProxyDescriptor(lookup, interfaceName, target, singleton);
-            proxyDescriptors.put(interfaceName, lastProxy);
+        private ModuleRegistry addProxy(String interfaceName, String target, boolean singleton, String[] dependencies) {
+            lastProxy = new ProxyDescriptor(lookup, interfaceName, target, singleton, dependencies);
+            proxyDescriptorByInterfaceName.put(interfaceName, lastProxy);
             return this;
         }
 
-        public ModuleRegistry proxy(String interfaceName, String target) {
+        public ModuleRegistry proxy(String interfaceName, String target, String... dependencies) {
             Objects.requireNonNull(target);
-            return addProxy(interfaceName, target, false);
+            return addProxy(interfaceName, target, false, dependencies);
         }
 
-        public ModuleRegistry service(String interfaceName, String target) {
-            return addProxy(interfaceName, target, true);
+        public ModuleRegistry service(String interfaceName, String target, String... dependencies) {
+            return addProxy(interfaceName, target, true, dependencies);
         }
 
         public ModuleRegistry withStatic(String methodName, String clazz) {

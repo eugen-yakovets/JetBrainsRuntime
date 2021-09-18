@@ -28,15 +28,21 @@ import java.lang.invoke.MethodHandle;
 class Proxy {
     static final Proxy NULL = new Proxy(null, null) {
         @Override
+        boolean areDependenciesFullySupported() { return false; }
+        @Override
         boolean areAllMethodsImplemented() { return false; }
         @Override
         MethodHandle getConstructor() { return null; }
+        @Override
+        boolean isFullySupported() { return false; }
         @Override
         Object getInstance() { return null; }
     };
 
     private final ProxyDescriptor descriptor;
     private final Class<?> interFace;
+
+    private volatile Boolean dependenciesFullySupported;
 
     private volatile ProxyGenerator generator;
     private volatile Boolean allMethodsImplemented;
@@ -48,6 +54,22 @@ class Proxy {
     Proxy(ProxyDescriptor descriptor, Class<?> interFace) {
         this.descriptor = descriptor;
         this.interFace = interFace;
+    }
+
+    boolean areDependenciesFullySupported() {
+        if (dependenciesFullySupported != null) return dependenciesFullySupported;
+        synchronized (this) {
+            if (dependenciesFullySupported == null) {
+                for (String d : descriptor.dependencies) {
+                    if (!JBRApi.findProxy(d).isFullySupported()) {
+                        dependenciesFullySupported = false;
+                        return false;
+                    }
+                }
+                dependenciesFullySupported = true;
+            }
+            return dependenciesFullySupported;
+        }
     }
 
     private void initGenerator() {
@@ -62,6 +84,10 @@ class Proxy {
             if (allMethodsImplemented == null) initGenerator();
             return allMethodsImplemented;
         }
+    }
+
+    boolean isFullySupported() {
+        return areDependenciesFullySupported() && areAllMethodsImplemented();
     }
 
     MethodHandle getConstructor() {
