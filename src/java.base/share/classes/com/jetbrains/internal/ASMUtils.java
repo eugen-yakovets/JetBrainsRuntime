@@ -23,6 +23,8 @@
 
 package com.jetbrains.internal;
 
+import jdk.internal.org.objectweb.asm.ClassVisitor;
+import jdk.internal.org.objectweb.asm.MethodVisitor;
 import jdk.internal.org.objectweb.asm.Type;
 
 import java.lang.invoke.MethodHandle;
@@ -31,7 +33,6 @@ import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 
 import static jdk.internal.org.objectweb.asm.Opcodes.*;
-import static java.lang.invoke.MethodHandles.Lookup;
 
 class ASMUtils {
 
@@ -43,6 +44,21 @@ class ASMUtils {
         } catch (NoSuchMethodException | IllegalAccessException e) {
             throw new Error(e);
         }
+    }
+
+    public static final int ASM_VERSION = ASM8;
+    public static final int BYTECODE_VERSION = 61;
+
+    public static void generateUnsupportedMethod(ClassVisitor writer, Method interfaceMethod) {
+        InternalMethodInfo methodInfo = getInternalMethodInfo(interfaceMethod);
+        MethodVisitor p = writer.visitMethod(ACC_PUBLIC | ACC_FINAL, methodInfo.name(),
+                methodInfo.descriptor(), methodInfo.genericSignature(), methodInfo.exceptionNames());
+        p.visitTypeInsn(NEW, "java/lang/UnsupportedOperationException");
+        p.visitInsn(DUP);
+        p.visitLdcInsn("No implementation found for this method");
+        p.visitMethodInsn(INVOKESPECIAL, "java/lang/UnsupportedOperationException", "<init>", "(Ljava/lang/String;)V", false);
+        p.visitInsn(ATHROW);
+        p.visitMaxs(-1, -1);
     }
 
     protected record InternalMethodInfo(String name, String descriptor, String genericSignature,
@@ -62,16 +78,15 @@ class ASMUtils {
         }
     }
 
-    public static InternalMethodInfo getBridgeMethodInfo(InternalMethodInfo info, String targetDescriptor) {
-        int sigInsertIndex = info.genericSignature() == null ? -1 : info.genericSignature().indexOf('(') + 1;
-        return new InternalMethodInfo(
-                info.name,
-                "(" + targetDescriptor + info.descriptor.substring(1),
-                sigInsertIndex == -1 ? null : info.genericSignature().substring(0, sigInsertIndex) +
-                        targetDescriptor + info.genericSignature().substring(sigInsertIndex),
-                info.parameterTypes(),
-                info.returnType(),
-                info.exceptionNames());
+    public static String expandMethodHandleDescriptorForInstance(String descriptor, String instanceDescriptor) {
+        return "(" + instanceDescriptor + descriptor.substring(1);
+    }
+
+    public static String expandMethodHandleSignatureForInstance(String genericSignature, String instanceDescriptor) {
+        if (genericSignature == null) return null;
+        int sigInsertIndex = genericSignature.indexOf('(') + 1;
+        return genericSignature.substring(0, sigInsertIndex) +
+                instanceDescriptor + genericSignature.substring(sigInsertIndex);
     }
 
     private static String[] getExceptionNames(Method method) {

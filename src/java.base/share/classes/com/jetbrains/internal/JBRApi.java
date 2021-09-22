@@ -23,9 +23,7 @@
 
 package com.jetbrains.internal;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiFunction;
@@ -34,64 +32,97 @@ import static java.lang.invoke.MethodHandles.Lookup;
 
 public class JBRApi {
 
-    private static final Map<String, ProxyDescriptor> proxyDescriptorByInterfaceName = new HashMap<>();
-    private static final ConcurrentMap<Class<?>, Proxy> proxyByInterface = new ConcurrentHashMap<>();
+    private static final Map<String, RegisteredProxyInfo> registeredProxyInfoByInterfaceName = new HashMap<>();
+    private static final Map<String, RegisteredProxyInfo> registeredProxyInfoByTargetName = new HashMap<>();
+    private static final ConcurrentMap<Class<?>, Proxy<?>> proxyByInterface = new ConcurrentHashMap<>();
 
-    public static Lookup outerLookup;
+    static Lookup outerLookup;
+    static Set<String> knownServices, knownProxies;
+
+    public static void init(Lookup outerLookup) {
+        JBRApi.outerLookup = outerLookup;
+        try {
+            Class<?> metadataClass = outerLookup.findClass("com.jetbrains.JBR$Metadata");
+            knownServices = Set.of((String[]) outerLookup.findStaticVarHandle(metadataClass,
+                    "KNOWN_SERVICES", String[].class).get());
+            knownProxies = Set.of((String[]) outerLookup.findStaticVarHandle(metadataClass,
+                    "KNOWN_PROXIES", String[].class).get());
+        } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException e) {
+            e.printStackTrace();
+            knownServices = Set.of();
+            knownProxies = Set.of();
+        }
+    }
+
+    public static <T> T getService(Class<T> interFace) {
+        Proxy<T> p = getProxy(interFace);
+        return p.isFullySupported() ? p.getInstance() : null;
+    }
+
+    public static <T> T getServicePartialSupport(Class<T> interFace) {
+        return getProxy(interFace).getInstance();
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> Proxy<T> getProxy(Class<T> interFace) {
+        return (Proxy<T>) proxyByInterface.computeIfAbsent(interFace, i -> {
+            RegisteredProxyInfo info = registeredProxyInfoByInterfaceName.get(i.getName());
+            if (info == null) return Proxy.NULL;
+            ProxyInfo resolved = ProxyInfo.resolve(info);
+            return resolved != null ? new Proxy.Impl<T>(resolved) : Proxy.NULL;
+        });
+    }
 
     public static ModuleRegistry registerModule(Lookup lookup, BiFunction<String, Module, Module> addExports) {
         addExports.apply(lookup.lookupClass().getPackageName(), outerLookup.lookupClass().getModule());
         return new ModuleRegistry(lookup);
     }
 
-    @SuppressWarnings("unchecked")
-    public static <T> T getService(Class<T> interFace) {
-        Proxy p = getProxy(interFace);
-        return p.isFullySupported() ? (T) p.getInstance() : null;
+    static boolean isKnownProxyInterface(Class<?> clazz) {
+        String name = clazz.getName();
+        return registeredProxyInfoByInterfaceName.containsKey(name) ||
+                knownServices.contains(name) || knownProxies.contains(name);
     }
 
-    @SuppressWarnings("unchecked")
-    public static <T> T getServicePartialSupport(Class<T> interFace) {
-        return (T) getProxy(interFace).getInstance();
-    }
-
-    static Proxy findProxy(String interfaceName) {
+    static Class<?> getProxyInterfaceByTargetName(String targetName) {
+        RegisteredProxyInfo info = registeredProxyInfoByTargetName.get(targetName);
+        if (info == null) return null;
         try {
-            return getProxy(outerLookup.findClass(interfaceName));
-        } catch (ClassNotFoundException | IllegalAccessException ignore) {
-            return Proxy.NULL;
+            return (info.type() == ProxyInfo.Type.CLIENT_PROXY ? info.apiModule() : outerLookup)
+                    .findClass(info.interfaceName());
+        } catch (ClassNotFoundException | IllegalAccessException e) {
+            return null;
         }
-    }
-
-    private static Proxy getProxy(Class<?> interFace) {
-        return proxyByInterface.computeIfAbsent(interFace, i -> {
-            ProxyDescriptor descriptor = proxyDescriptorByInterfaceName.get(interFace.getName());
-            return descriptor != null ? new Proxy(descriptor, i) : Proxy.NULL;
-        });
     }
 
     public static class ModuleRegistry {
 
         private final Lookup lookup;
-        private ProxyDescriptor lastProxy;
+        private RegisteredProxyInfo lastProxy;
 
         private ModuleRegistry(Lookup lookup) {
             this.lookup = lookup;
         }
 
-        private ModuleRegistry addProxy(String interfaceName, String target, boolean singleton, String[] dependencies) {
-            lastProxy = new ProxyDescriptor(lookup, interfaceName, target, singleton, dependencies);
-            proxyDescriptorByInterfaceName.put(interfaceName, lastProxy);
+        private ModuleRegistry addProxy(String interfaceName, String target, ProxyInfo.Type type) {
+            lastProxy = new RegisteredProxyInfo(lookup, interfaceName, target, type, new ArrayList<>());
+            registeredProxyInfoByInterfaceName.put(interfaceName, lastProxy);
+            if (target != null) registeredProxyInfoByTargetName.put(target, lastProxy);
             return this;
         }
 
-        public ModuleRegistry proxy(String interfaceName, String target, String... dependencies) {
+        public ModuleRegistry proxy(String interfaceName, String target) {
             Objects.requireNonNull(target);
-            return addProxy(interfaceName, target, false, dependencies);
+            return addProxy(interfaceName, target, ProxyInfo.Type.PROXY);
         }
 
-        public ModuleRegistry service(String interfaceName, String target, String... dependencies) {
-            return addProxy(interfaceName, target, true, dependencies);
+        public ModuleRegistry service(String interfaceName, String target) {
+            return addProxy(interfaceName, target, ProxyInfo.Type.SERVICE);
+        }
+
+        public ModuleRegistry clientProxy(String interfaceName, String target) {
+            Objects.requireNonNull(target);
+            return addProxy(interfaceName, target, ProxyInfo.Type.CLIENT_PROXY);
         }
 
         public ModuleRegistry withStatic(String methodName, String clazz) {
@@ -99,7 +130,8 @@ public class JBRApi {
         }
 
         public ModuleRegistry withStatic(String interfaceMethodName, String clazz, String methodName) {
-            lastProxy.addStatic(interfaceMethodName, clazz, methodName);
+            lastProxy.staticMethods().add(
+                    new RegisteredProxyInfo.StaticMethodMapping(interfaceMethodName, clazz, methodName));
             return this;
         }
     }

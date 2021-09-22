@@ -28,15 +28,15 @@ import java.lang.reflect.InvocationTargetException;
 
 public class JBR {
 
-    private static final Api api;
+    private static final ServiceApi api;
     private static final Exception bootstrapException;
     static {
-        Api a = null;
+        ServiceApi a = null;
         Exception exception = null;
         try {
-            a = (Api) Class.forName("com.jetbrains.bootstrap.JBRApiBootstrap")
-                    .getMethod("bootstrap", MethodHandles.Lookup.class, Class.class)
-                    .invoke(null, MethodHandles.lookup(), Api.class);
+            a = (ServiceApi) Class.forName("com.jetbrains.bootstrap.JBRApiBootstrap")
+                    .getMethod("bootstrap", MethodHandles.Lookup.class)
+                    .invoke(null, MethodHandles.lookup());
         } catch (InvocationTargetException e) {
             Throwable t = e.getCause();
             if (t instanceof Error error) throw error;
@@ -66,11 +66,18 @@ public class JBR {
         return api == null ? null : api.getServicePartialSupport(interFace);
     }
 
-    private interface Api {
+    private interface ServiceApi {
 
         <T> T getService(Class<T> interFace);
 
         <T> T getServicePartialSupport(Class<T> interFace);
+    }
+
+    // ========================== Generated metadata ==========================
+
+    private static final class Metadata {
+        private static final String[] KNOWN_SERVICES = {/*KNOWN_SERVICES*/};
+        private static final String[] KNOWN_PROXIES = {/*KNOWN_PROXIES*/};
     }
 
     // ======================= Generated static methods =======================

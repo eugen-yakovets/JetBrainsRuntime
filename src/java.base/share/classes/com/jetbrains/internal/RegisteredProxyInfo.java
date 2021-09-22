@@ -21,17 +21,16 @@
  * questions.
  */
 
-package com.jetbrains.base;
-
-import com.jetbrains.internal.JBRApi;
+package com.jetbrains.internal;
 
 import java.lang.invoke.MethodHandles;
+import java.util.List;
 
-public class JBRApiModule {
-    static {
-        JBRApi.registerModule(MethodHandles.lookup(), JBRApiModule.class.getModule()::addExports)
-                .service("com.jetbrains.JBR$ServiceApi", null)
-                    .withStatic("getService", "com.jetbrains.internal.JBRApi")
-                    .withStatic("getServicePartialSupport", "com.jetbrains.internal.JBRApi");
-    }
+record RegisteredProxyInfo(MethodHandles.Lookup apiModule,
+                           String interfaceName,
+                           String target,
+                           ProxyInfo.Type type,
+                           List<StaticMethodMapping> staticMethods) {
+
+    record StaticMethodMapping(String interfaceMethodName, String clazz, String methodName) {}
 }

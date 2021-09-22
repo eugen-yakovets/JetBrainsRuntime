@@ -25,95 +25,100 @@ package com.jetbrains.internal;
 
 import java.lang.invoke.MethodHandle;
 
-class Proxy {
-    static final Proxy NULL = new Proxy(null, null) {
+public class Proxy<INTERFACE> {
+    static final Proxy<?> NULL = new Proxy<>();
+
+    public boolean areAllMethodsImplemented() { return false; }
+    public boolean isFullySupported() { return false; }
+    public INTERFACE newInstance(Object target) { return null; }
+    public INTERFACE getInstance() { return null; }
+
+    static class Impl<INTERFACE> extends Proxy<INTERFACE> {
+        private final ProxyInfo info;
+
+        private volatile ProxyGenerator generator;
+        private volatile Boolean allMethodsImplemented;
+
+        private volatile Boolean fullySupported;
+
+        private volatile MethodHandle constructor;
+
+        private volatile INTERFACE instance;
+
+        Impl(ProxyInfo info) {
+            this.info = info;
+        }
+
+        private void initGenerator() {
+            if (generator != null) return;
+            generator = new ProxyGenerator(info);
+            allMethodsImplemented = generator.areAllMethodsImplemented();
+        }
+
         @Override
-        boolean areDependenciesFullySupported() { return false; }
+        public boolean areAllMethodsImplemented() {
+            if (allMethodsImplemented != null) return allMethodsImplemented;
+            synchronized (this) {
+                if (allMethodsImplemented == null) initGenerator();
+                return allMethodsImplemented;
+            }
+        }
+
         @Override
-        boolean areAllMethodsImplemented() { return false; }
+        public boolean isFullySupported() {
+            if (fullySupported != null) return fullySupported;
+            synchronized (this) {
+                if (fullySupported == null) {
+                    for (Class<?> d : ProxyDependencyManager.getDependencies(info.interFace)) {
+                        if (!JBRApi.getProxy(d).areAllMethodsImplemented()) {
+                            fullySupported = false;
+                            return false;
+                        }
+                    }
+                    fullySupported = true;
+                }
+                return fullySupported;
+            }
+        }
+
+        private MethodHandle getConstructor() {
+            if (constructor != null) return constructor;
+            synchronized (this) {
+                if (constructor == null) {
+                    initGenerator();
+                    constructor = generator.generate();
+                    generator = null;
+                }
+                return constructor;
+            }
+        }
+
+        @SuppressWarnings("unchecked")
         @Override
-        MethodHandle getConstructor() { return null; }
+        public INTERFACE newInstance(Object target) {
+            if (info.type == ProxyInfo.Type.SERVICE) return null;
+            try {
+                return (INTERFACE) getConstructor().invoke(target);
+            } catch (Throwable e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        @SuppressWarnings("unchecked")
         @Override
-        boolean isFullySupported() { return false; }
-        @Override
-        Object getInstance() { return null; }
-    };
-
-    private final ProxyDescriptor descriptor;
-    private final Class<?> interFace;
-
-    private volatile Boolean dependenciesFullySupported;
-
-    private volatile ProxyGenerator generator;
-    private volatile Boolean allMethodsImplemented;
-
-    private volatile MethodHandle constructor;
-
-    private volatile Object instance;
-
-    Proxy(ProxyDescriptor descriptor, Class<?> interFace) {
-        this.descriptor = descriptor;
-        this.interFace = interFace;
-    }
-
-    boolean areDependenciesFullySupported() {
-        if (dependenciesFullySupported != null) return dependenciesFullySupported;
-        synchronized (this) {
-            if (dependenciesFullySupported == null) {
-                for (String d : descriptor.dependencies) {
-                    if (!JBRApi.findProxy(d).isFullySupported()) {
-                        dependenciesFullySupported = false;
-                        return false;
+        public INTERFACE getInstance() {
+            if (instance != null) return instance;
+            if (info.type != ProxyInfo.Type.SERVICE) return null;
+            synchronized (this) {
+                if (instance == null) {
+                    try {
+                        instance = (INTERFACE) getConstructor().invoke();
+                    } catch (Throwable e) {
+                        throw new RuntimeException(e);
                     }
                 }
-                dependenciesFullySupported = true;
+                return instance;
             }
-            return dependenciesFullySupported;
-        }
-    }
-
-    private void initGenerator() {
-        if (generator != null) return;
-        generator = new ProxyGenerator(interFace, descriptor);
-        allMethodsImplemented = generator.areAllMethodsImplemented();
-    }
-
-    boolean areAllMethodsImplemented() {
-        if (allMethodsImplemented != null) return allMethodsImplemented;
-        synchronized (this) {
-            if (allMethodsImplemented == null) initGenerator();
-            return allMethodsImplemented;
-        }
-    }
-
-    boolean isFullySupported() {
-        return areDependenciesFullySupported() && areAllMethodsImplemented();
-    }
-
-    MethodHandle getConstructor() {
-        if (constructor != null) return constructor;
-        synchronized (this) {
-            if (constructor == null) {
-                initGenerator();
-                constructor = generator.generate();
-                generator = null;
-            }
-            return constructor;
-        }
-    }
-
-    Object getInstance() {
-        if (instance != null) return instance;
-        if (!descriptor.service) return null;
-        synchronized (this) {
-            if (instance == null) {
-                try {
-                    instance = getConstructor().invoke();
-                } catch (Throwable e) {
-                    throw new RuntimeException(e);
-                }
-            }
-            return instance;
         }
     }
 }

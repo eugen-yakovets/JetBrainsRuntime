@@ -36,24 +36,18 @@ public class JBRApiBootstrap {
             "com.jetbrains.desktop.JBRApiModule"
     };
 
-    public static synchronized Object bootstrap(MethodHandles.Lookup outerLookup, Class<?> jbrApiClass) {
-        if (!jbrApiClass.getPackageName().equals("com.jetbrains") ||
-                !jbrApiClass.getModule().getName().equals("jetbrains.api")) {
-            throw new IllegalArgumentException("Invalid JBR API class: " + jbrApiClass.getName());
-        }
+    public static synchronized Object bootstrap(MethodHandles.Lookup outerLookup)
+            throws ClassNotFoundException, IllegalAccessException {
+        Class<?> apiInterface = outerLookup.findClass("com.jetbrains.JBR$ServiceApi");
         if (!outerLookup.hasFullPrivilegeAccess() ||
-                outerLookup.lookupClass().getPackage() != jbrApiClass.getPackage()) {
+                outerLookup.lookupClass().getPackage() != apiInterface.getPackage()) {
             throw new IllegalArgumentException("Lookup must be full-privileged from the com.jetbrains package: " +
                     outerLookup.lookupClass().getName());
         }
-        JBRApi.outerLookup = outerLookup;
+        JBRApi.init(outerLookup);
         ClassLoader classLoader = ClassLoaders.platformClassLoader();
-        try {
-            for (String m : MODULES) Class.forName(m, true, classLoader);
-        } catch (ClassNotFoundException e) {
-            throw new Error(e);
-        }
-        return JBRApi.getService(jbrApiClass);
+        for (String m : MODULES) Class.forName(m, true, classLoader);
+        return JBRApi.getService(apiInterface);
     }
 
 }

@@ -21,21 +21,24 @@
  * questions.
  */
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static java.nio.file.StandardOpenOption.*;
+import static java.util.regex.Pattern.compile;
 
 public class Gensrc {
 
-    private static Path src, templates, gensrc;
+    private static Path srcroot, src, templates, gensrc;
+    private static JBRModules modules;
 
     /**
      * $0 - absolute path to jetbrains.api module
@@ -43,10 +46,18 @@ public class Gensrc {
      */
     public static void main(String[] args) throws IOException {
         Path module = Path.of(args[0]);
+        srcroot = module.getParent();
         src = module.resolve("src");
         templates = module.resolve("templates");
         gensrc = Path.of(args[1]);
+        modules = new JBRModules();
         JBR.generate();
+    }
+
+    private static String findRegex(String src, Pattern regex) {
+        Matcher matcher = regex.matcher(src);
+        if (!matcher.find()) throw new IllegalArgumentException("Regex not found: " + regex.pattern());
+        return matcher.group(1);
     }
 
     private static String replaceTemplate(String src, String placeholder, Iterable<String> statements) {
@@ -77,27 +88,36 @@ public class Gensrc {
             Files.writeString(output, content, CREATE, WRITE, TRUNCATE_EXISTING);
         }
 
-        private static String generate(String content) throws IOException {
-            Service[] interfaces = findServiceInterfaces();
+        private static String generate(String content) {
+            Service[] interfaces = findPublicServiceInterfaces();
             List<String> statements = new ArrayList<>();
             for (Service i : interfaces) statements.add(generateMethods(i));
-            return replaceTemplate(content, "/*GENERATED_METHODS*/", statements);
+            content = replaceTemplate(content, "/*GENERATED_METHODS*/", statements);
+            content = content.replace("/*KNOWN_SERVICES*/",
+                    modules.services.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(", ")));
+            content = content.replace("/*KNOWN_PROXIES*/",
+                    modules.proxies.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(", ")));
+            return content;
         }
 
-        private static Service[] findServiceInterfaces() throws IOException {
+        private static Service[] findPublicServiceInterfaces() {
             Pattern javadocPattern = Pattern.compile("/\\*\\*((?:.|\n)*?)(\s|\n)*\\*/");
-            return Files.list(src.resolve("com/jetbrains")).map(p -> {
-                try {
-                    String name = p.getFileName().toString().replace(".java", "");
-                    String content = Files.readString(p);
-                    int indexOfDeclaration = content.indexOf("public interface " + name);
-                    if (indexOfDeclaration == -1) return null;
-                    Matcher javadoc = javadocPattern.matcher(content.substring(0, indexOfDeclaration));
-                    return new Service(name, javadoc.find() ? javadoc.group(1) : "");
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }).filter(Objects::nonNull).toArray(Service[]::new);
+            return modules.services.stream()
+                    .map(fullName -> {
+                        if (fullName.indexOf('$') != -1) return null; // Only top level services can be public
+                        Path path = src.resolve(fullName.replace('.', '/') + ".java");
+                        String name = fullName.substring(fullName.lastIndexOf('.') + 1);
+                        try {
+                            String content = Files.readString(path);
+                            int indexOfDeclaration = content.indexOf("public interface " + name);
+                            if (indexOfDeclaration == -1) return null;
+                            Matcher javadoc = javadocPattern.matcher(content.substring(0, indexOfDeclaration));
+                            return new Service(name, javadoc.find() ? javadoc.group(1) : "");
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    })
+                    .filter(Objects::nonNull).toArray(Service[]::new);
         }
 
         private static String generateMethods(Service service) {
@@ -126,5 +146,57 @@ public class Gensrc {
         }
 
         private record Service(String name, String javadoc) {}
+    }
+
+    private static class JBRModules {
+
+        private final Set<String> proxies = new HashSet<>(), services = new HashSet<>();
+
+        private JBRModules() throws IOException {
+            String[] moduleNames = findJBRApiModules();
+            Path[] potentialModules = findPotentialJBRApiContributorModules();
+            for (String moduleName : moduleNames) {
+                Path module = findJBRApiModuleFile(moduleName, potentialModules);
+                findInModule(Files.readString(module));
+            }
+        }
+
+        private void findInModule(String content) {
+            Pattern servicePattern = compile("(service|proxy)\s*\\(([^)]+)");
+            Matcher matcher = servicePattern.matcher(content);
+            while (matcher.find()) {
+                String type = matcher.group(1);
+                String parameters = matcher.group(2);
+                String interfaceName = extractFromStringLiteral(parameters.substring(0, parameters.indexOf(',')));
+                if (type.equals("service")) services.add(interfaceName);
+                else proxies.add(interfaceName);
+            }
+        }
+
+        private static String extractFromStringLiteral(String value) {
+            value = value.strip();
+            return value.substring(1, value.length() - 1);
+        }
+
+        private static Path findJBRApiModuleFile(String module, Path[] potentialPaths) throws FileNotFoundException {
+            for (Path p : potentialPaths) {
+                Path m = p.resolve("share/classes").resolve(module + ".java");
+                if (Files.exists(m)) return m;
+            }
+            throw new FileNotFoundException("JBR API module file not found: " + module);
+        }
+
+        private static String[] findJBRApiModules() throws IOException {
+            String bootstrap = Files.readString(
+                    srcroot.resolve("java.base/share/classes/com/jetbrains/bootstrap/JBRApiBootstrap.java"));
+            Pattern modulePattern = compile("\"([^\"]+)");
+            return Stream.of(findRegex(bootstrap, compile("MODULES *=([^;]+)")).split(","))
+                    .map(m -> findRegex(m, modulePattern).replace('.', '/')).toArray(String[]::new);
+        }
+
+        private static Path[] findPotentialJBRApiContributorModules() throws IOException {
+            return Files.list(srcroot)
+                    .filter(p -> Files.exists(p.resolve("share/classes/com/jetbrains"))).toArray(Path[]::new);
+        }
     }
 }
