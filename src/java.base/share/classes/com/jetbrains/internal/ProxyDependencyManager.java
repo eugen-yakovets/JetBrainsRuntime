@@ -31,20 +31,59 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
 
+/**
+ * This class collects {@linkplain Proxy proxy} dependencies.
+ * <p>
+ * Dependencies of a class {@code C} are other classes that are
+ * used by {@code C} (i.e. supertypes, classes that appear in method
+ * parameters, return types) and all their dependencies. Any class
+ * is also considered a dependency of itself.
+ * <p>
+ * Dependencies allow JBR to validate whole set of interfaces for
+ * a particular feature instead of treating them as separate entities.
+ * <h2>Example</h2>
+ * Suppose we implemented some feature and added some API for it:
+ * <blockquote><pre>{@code
+ * interface SomeFeature {
+ *     SomeOtherObject createSomeObject(int magicNumber);
+ * }
+ * interface SomeOtherObject {
+ *     int getMagicNumber();
+ * }
+ * }</pre></blockquote>
+ * And then used it:
+ * <blockquote><pre>{@code
+ * if (JBR.isSomeFeatureSupported()) {
+ *     SomeOtherObject object = JBR.getSomeFeature().createSomeObject(123);
+ *     int magic = object.getMagicNumber();
+ * }
+ * }</pre></blockquote>
+ * Suppose JBR was able to find implementation for {@code SomeFeature.createSomeObject()},
+ * but not for {@code SomeOtherObject.getMagicNumber()}. So {@code JBR.getSomeFeature()}
+ * would succeed and return service instance, but {@code createSomeObject()} would fail,
+ * because JBR wasn't able to find implementation for {@code SomeOtherObject.getMagicNumber()}
+ * and therefore couldn't create proxy for {@code SomeOtherObject} class.
+ * <p>
+ * To avoid such issues, not only proxy interface itself, but all proxies that are accessible
+ * from current proxy interface must have proper implementation.
+ */
 class ProxyDependencyManager {
 
     private static final ConcurrentMap<Class<?>, Set<Class<?>>> cache = new ConcurrentHashMap<>();
 
     /**
-     * @return all proxy interfaces that are used (directly or indirectly) by given interface, including itself
+     * @return all proxy interfaces that are used (directly or indirectly) by given interface, including itself.
      */
-    static Set<Class<?>> getDependencies(Class<?> interFace) {
+    static Set<Class<?>> getProxyDependencies(Class<?> interFace) {
         Set<Class<?>> dependencies = cache.get(interFace);
         if (dependencies != null) return dependencies;
         step(null, interFace);
         return cache.get(interFace);
     }
 
+    /**
+     * Collect dependencies for given class and store them into cache.
+     */
     private static void step(Node parent, Class<?> clazz) {
         if (!clazz.getPackageName().startsWith("com.jetbrains")) return;
         if (parent != null && parent.findAndMergeCycle(clazz) != null) {
@@ -65,12 +104,17 @@ class ProxyDependencyManager {
             parent.cycle.dependencies.addAll(node.cycle.dependencies);
         }
         if (node.cycle.origin.equals(clazz)) {
+            // Put collected dependencies into cache only when we exit from the cycle
+            // Otherwise cache will contain incomplete data
             for (Class<?> c : node.cycle.members) {
                 cache.put(c, node.cycle.dependencies);
             }
         }
     }
 
+    /**
+     * Graph node, one per visited class
+     */
     private static class Node {
         private final Node parent;
         private final Class<?> clazz;
@@ -82,6 +126,10 @@ class ProxyDependencyManager {
             cycle = new Cycle(clazz);
         }
 
+        /**
+         * When classes form dependency cycle, they share all their dependencies.
+         * If cycle was found, merge all found dependencies for nodes that form the cycle.
+         */
         private Cycle findAndMergeCycle(Class<?> clazz) {
             if (this.clazz.equals(clazz)) return cycle;
             if (parent == null) return null;
@@ -95,7 +143,14 @@ class ProxyDependencyManager {
         }
     }
 
+    /**
+     * Cycle info. For the sake of elegant code, single node
+     * also forms a cycle with itself as a single member and dependency.
+     */
     private static class Cycle {
+        /**
+         * Origin is the first visited class from that cycle.
+         */
         private final Class<?> origin;
         private final Set<Class<?>> members = new HashSet<>();
         private final Set<Class<?>> dependencies = new HashSet<>();
@@ -109,6 +164,9 @@ class ProxyDependencyManager {
         }
     }
 
+    /**
+     * Utility class that collects direct class usages using reflection
+     */
     private static class ClassUsagesFinder {
 
         private static void visitUsages(Class<?> c, Consumer<Class<?>> action) {

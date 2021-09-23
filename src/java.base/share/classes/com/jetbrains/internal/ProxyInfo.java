@@ -29,6 +29,10 @@ import java.util.Map;
 
 import static java.lang.invoke.MethodHandles.Lookup;
 
+/**
+ * Proxy info, like {@link RegisteredProxyInfo}, but with all classes and lookup contexts resolved.
+ * Contains all necessary information to create a {@linkplain Proxy proxy}.
+ */
 class ProxyInfo {
 
     final Lookup apiModule;
@@ -51,6 +55,9 @@ class ProxyInfo {
         }
     }
 
+    /**
+     * Resolve all classes and lookups for given {@link RegisteredProxyInfo}.
+     */
     static ProxyInfo resolve(RegisteredProxyInfo i) {
         ProxyInfo info = new ProxyInfo(i);
         return info.interFace != null && (info.target != null || !info.staticMethods.isEmpty()) ? info : null;
@@ -75,18 +82,12 @@ class ProxyInfo {
 
     record StaticMethodMapping(Lookup lookup, String methodName) {}
 
+    /**
+     * Proxy type, see {@link Proxy}
+     */
     enum Type {
-        /**
-         * Regular proxy for jetbrains.api -> JBR calls
-         */
         PROXY,
-        /**
-         * Service is a singleton {@link #PROXY proxy}
-         */
         SERVICE,
-        /**
-         * Reverse {@link #PROXY proxy} for JBR -> jetbrains.api calls
-         */
         CLIENT_PROXY
     }
 }

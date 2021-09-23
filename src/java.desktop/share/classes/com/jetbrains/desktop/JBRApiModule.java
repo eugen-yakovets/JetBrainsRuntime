@@ -27,6 +27,9 @@ import com.jetbrains.internal.JBRApi;
 
 import java.lang.invoke.MethodHandles;
 
+/**
+ * This class contains mapping between JBR API interfaces and implementation in {@code java.desktop} module.
+ */
 public class JBRApiModule {
     static {
         JBRApi.registerModule(MethodHandles.lookup(), JBRApiModule.class.getModule()::addExports)

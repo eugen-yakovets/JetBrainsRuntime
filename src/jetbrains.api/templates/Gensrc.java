@@ -35,6 +35,13 @@ import java.util.stream.Stream;
 import static java.nio.file.StandardOpenOption.*;
 import static java.util.regex.Pattern.compile;
 
+/**
+ * Codegen script for {@code jetbrains.api} module.
+ * It produces "main" {@link com.jetbrains.JBR} class from template by
+ * inspecting interfaces and implementation code and inserting
+ * static utility methods for public services as well as some metadata
+ * needed by JBR at runtime.
+ */
 public class Gensrc {
 
     private static Path srcroot, src, templates, gensrc;
@@ -78,6 +85,9 @@ public class Gensrc {
         return sb.toString();
     }
 
+    /**
+     * Code for generating {@link com.jetbrains.JBR} class.
+     */
     private static class JBR {
 
         private static void generate() throws IOException {
@@ -91,7 +101,7 @@ public class Gensrc {
         private static String generate(String content) {
             Service[] interfaces = findPublicServiceInterfaces();
             List<String> statements = new ArrayList<>();
-            for (Service i : interfaces) statements.add(generateMethods(i));
+            for (Service i : interfaces) statements.add(generateMethodsForService(i));
             content = replaceTemplate(content, "/*GENERATED_METHODS*/", statements);
             content = content.replace("/*KNOWN_SERVICES*/",
                     modules.services.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(", ")));
@@ -120,7 +130,7 @@ public class Gensrc {
                     .filter(Objects::nonNull).toArray(Service[]::new);
         }
 
-        private static String generateMethods(Service service) {
+        private static String generateMethodsForService(Service service) {
             return """
                     private static class $__Holder {
                         private static final $ INSTANCE = api != null ? api.getService($.class) : null;
@@ -148,6 +158,9 @@ public class Gensrc {
         private record Service(String name, String javadoc) {}
     }
 
+    /**
+     * Finds and analyzes JBR API implementation modules and collects proxy definitions.
+     */
     private static class JBRModules {
 
         private final Set<String> proxies = new HashSet<>(), services = new HashSet<>();

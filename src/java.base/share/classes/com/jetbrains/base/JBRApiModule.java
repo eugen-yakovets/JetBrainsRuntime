@@ -27,11 +27,13 @@ import com.jetbrains.internal.JBRApi;
 
 import java.lang.invoke.MethodHandles;
 
+/**
+ * This class contains mapping between JBR API interfaces and implementation in {@code java.base} module.
+ */
 public class JBRApiModule {
     static {
         JBRApi.registerModule(MethodHandles.lookup(), JBRApiModule.class.getModule()::addExports)
                 .service("com.jetbrains.JBR$ServiceApi", null)
-                    .withStatic("getService", "com.jetbrains.internal.JBRApi")
-                    .withStatic("getServicePartialSupport", "com.jetbrains.internal.JBRApi");
+                    .withStatic("getService", "com.jetbrains.internal.JBRApi");
     }
 }

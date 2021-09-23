@@ -25,12 +25,54 @@ package com.jetbrains.internal;
 
 import java.lang.invoke.MethodHandle;
 
+/**
+ * Proxy is needed to dynamically link JBR API interfaces and implementation at runtime.
+ * It implements user-side interfaces and delegates method calls to actual implementation
+ * code through {@linkplain java.lang.invoke.MethodHandle method handles}.
+ * <p>
+ * There are 3 type of proxy objects:
+ * <ol>
+ *     <li>{@linkplain ProxyInfo.Type#PROXY Proxy} - implements client-side interface from
+ *        {@code jetbrains.api} and delegates calls to JBR-side target object and optionally static methods.</li>
+ *     <li>{@linkplain ProxyInfo.Type#SERVICE Service} - singleton {@linkplain ProxyInfo.Type#PROXY proxy},
+ *        may delegate calls only to static methods, without target object.</li>
+ *     <li>{@linkplain ProxyInfo.Type#CLIENT_PROXY Client proxy} - reverse proxy, implements JBR-side interface
+ *        and delegates calls to client-side target object by interface defined in {@code jetbrains.api}.
+ *        May be used to implement callbacks which are created by client and called by JBR.</li>
+ * </ol>
+ * <p>
+ * Method signatures of proxy interfaces and implementation are validated to ensure that proxy can
+ * properly delegate call to the target implementation code. If there's no implementation found for some
+ * interface methods, corresponding proxy is considered unsupported. Proxy is also considered unsupported
+ * if any proxy used by it is unsupported, more about it at {@link ProxyDependencyManager}.
+ * <p>
+ * Mapping between interfaces and implementation code is defined in
+ * {@linkplain com.jetbrains.bootstrap.JBRApiBootstrap#MODULES registry classes}.
+ * @param <INTERFACE> interface type for this proxy.
+ */
 public class Proxy<INTERFACE> {
     static final Proxy<?> NULL = new Proxy<>();
 
+    /**
+     * Checks if implementation is found for all abstract interface methods of this proxy.
+     */
     public boolean areAllMethodsImplemented() { return false; }
+
+    /**
+     * Checks if all methods are {@linkplain #areAllMethodsImplemented() implemented}
+     * for this proxy and all proxies it {@linkplain ProxyDependencyManager uses}.
+     */
     public boolean isFullySupported() { return false; }
+
+    /**
+     * Create new proxy object, returns {@code null} for {@linkplain ProxyInfo.Type#SERVICE services}.
+     */
     public INTERFACE newInstance(Object target) { return null; }
+
+    /**
+     * Returns instance for this {@linkplain ProxyInfo.Type#SERVICE service},
+     * returns {@code null} for other proxy types.
+     */
     public INTERFACE getInstance() { return null; }
 
     static class Impl<INTERFACE> extends Proxy<INTERFACE> {
@@ -69,7 +111,7 @@ public class Proxy<INTERFACE> {
             if (fullySupported != null) return fullySupported;
             synchronized (this) {
                 if (fullySupported == null) {
-                    for (Class<?> d : ProxyDependencyManager.getDependencies(info.interFace)) {
+                    for (Class<?> d : ProxyDependencyManager.getProxyDependencies(info.interFace)) {
                         if (!JBRApi.getProxy(d).areAllMethodsImplemented()) {
                             fullySupported = false;
                             return false;

@@ -42,15 +42,19 @@ import static java.lang.invoke.MethodHandles.Lookup;
 import static jdk.internal.org.objectweb.asm.Opcodes.*;
 
 /**
+ * This class generates {@linkplain Proxy proxy} classes.
+ * Each proxy is just a generated class implementing some interface and
+ * delegating method calls to method handles.
+ * <p>
  * There are 2 proxy dispatch modes:
  * <ul>
- *     <li>interface -> proxy -> bridge -> method handle -> implementation code</li>
+ *     <li>interface -> proxy -> {@linkplain #generateBridge bridge} -> method handle -> implementation code</li>
  *     <li>interface -> proxy -> method handle -> implementation code</li>
- * <ul/>
- * Generated proxy is always located in client-side jetbrains.api module and optional bridge is located in the
+ * </ul>
+ * Generated proxy is always located in client-side {@code jetbrains.api} module and optional bridge is located in the
  * same module with target implementation code. Bridge allows proxy to safely call hidden non-static implementation
- * methods and is only needed for jetbrains.api -> JBR calls. For JBR -> jetbrains.api calls, proxy can invoke
- * method handle directly.
+ * methods and is only needed for {@code jetbrains.api} -> JBR calls. For JBR -> {@code jetbrains.api} calls, proxy can
+ * invoke method handle directly.
  */
 class ProxyGenerator {
 
@@ -64,6 +68,12 @@ class ProxyGenerator {
     private final List<Exception> exceptions = new ArrayList<>();
     private boolean allMethodsImplemented = true;
 
+    /**
+     * Creates new proxy generator from given {@link ProxyInfo},
+     * looks for abstract interface methods, corresponding implementation methods
+     * and generates proxy bytecode. However, it doesn't actually load generated
+     * classes until {@link #generate()} is called.
+     */
     ProxyGenerator(ProxyInfo info) {
         this.info = info;
         generateBridge = info.type != ProxyInfo.Type.CLIENT_PROXY;
@@ -94,6 +104,14 @@ class ProxyGenerator {
         return allMethodsImplemented;
     }
 
+    /**
+     * @return method handle to constructor of generated proxy class.
+     * <ul>
+     *     <li>For {@linkplain ProxyInfo.Type#SERVICE services}, constructor is no-arg.</li>
+     *     <li>For non-{@linkplain ProxyInfo.Type#SERVICE services}, constructor is single-arg,
+     *     expecting target object to which it would delegate method calls.</li>
+     * </ul>
+     */
     MethodHandle generate() {
         try {
             return findConstructor(defineClasses());
@@ -102,6 +120,10 @@ class ProxyGenerator {
         }
     }
 
+    /**
+     * Loads generated classes.
+     * @return lookup context for generated proxy.
+     */
     private Lookup defineClasses() throws IllegalAccessException, NoSuchFieldException {
         Lookup bridge = !generateBridge ? null : MethodHandles.privateLookupIn(
                 info.apiModule.defineClass(((ClassWriter) bridgeWriter).toByteArray()), info.apiModule);
@@ -113,9 +135,6 @@ class ProxyGenerator {
         return proxy;
     }
 
-    /**
-     * Proxy constructor is no-arg for services and single-arg for proxies with its target type
-     */
     private MethodHandle findConstructor(Lookup proxy) throws NoSuchMethodException, IllegalAccessException {
         if (info.target == null) {
             return proxy.findConstructor(proxy.lookupClass(), MethodType.methodType(void.class));

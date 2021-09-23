@@ -26,6 +26,29 @@ package com.jetbrains;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.InvocationTargetException;
 
+/**
+ * This class is an entry point into JBR API.
+ * JBR API is a collection of services, classes, interfaces, etc.,
+ * which require tight interaction with JRE and therefore are implemented inside JBR.
+ * <div>JBR API consists of two parts:</div>
+ * <ul>
+ *     <li>Client side - {@code jetbrains.api} module, mostly containing interfaces</li>
+ *     <li>JBR side - actual implementation code inside JBR</li>
+ * </ul>
+ * Client and JBR side are linked dynamically at runtime and do not have to be of the same version.
+ * In some cases (e.g. running on different JRE or old JBR) system will not be able to find
+ * implementation for some services, so you'll need a fallback behavior for that case.
+ * <h2>Simple usage example:</h2>
+ * <blockquote><pre>{@code
+ * if (JBR.isSomeServiceSupported()) {
+ *     JBR.getSomeService().doSomething();
+ * } else {
+ *     planB();
+ * }
+ * }</pre></blockquote>
+ * @implNote JBR API is initialized on first access to this class (in static initializer).
+ * Actual implementation is linked on demand, when corresponding service is requested by client.
+ */
 public class JBR {
 
     private static final ServiceApi api;
@@ -58,23 +81,18 @@ public class JBR {
     }
 
     /**
-     * @return any found implementation of given {@code interFace},
-     * even if runtime cannot implement all of its methods, or methods of its dependencies.
-     * Therefore, some methods of returned service may throw {@link UnsupportedOperationException}
+     * Internal API interface, contains most basic methods for communication between client and JBR.
      */
-    public static <T> T getServicePartialSupport(Class<T> interFace) {
-        return api == null ? null : api.getServicePartialSupport(interFace);
-    }
-
     private interface ServiceApi {
 
         <T> T getService(Class<T> interFace);
-
-        <T> T getServicePartialSupport(Class<T> interFace);
     }
 
     // ========================== Generated metadata ==========================
 
+    /**
+     * Generated client-side metadata, needed by JBR when linking the implementation.
+     */
     private static final class Metadata {
         private static final String[] KNOWN_SERVICES = {/*KNOWN_SERVICES*/};
         private static final String[] KNOWN_PROXIES = {/*KNOWN_PROXIES*/};

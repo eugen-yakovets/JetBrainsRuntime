@@ -28,14 +28,25 @@ import jdk.internal.loader.ClassLoaders;
 
 import java.lang.invoke.MethodHandles;
 
+/**
+ * Bootstrap class, used to initialize {@linkplain JBRApi JBR API}.
+ */
 public class JBRApiBootstrap {
     private JBRApiBootstrap() {}
 
+    /**
+     * Classes that register JBR API implementation for their modules.
+     */
     private static final String[] MODULES = {
             "com.jetbrains.base.JBRApiModule",
             "com.jetbrains.desktop.JBRApiModule"
     };
 
+    /**
+     * Called from static initializer of {@link com.jetbrains.JBR}.
+     * @param outerLookup lookup context inside {@code jetbrains.api} module
+     * @return implementation for {@link com.jetbrains.JBR.ServiceApi} interface
+     */
     public static synchronized Object bootstrap(MethodHandles.Lookup outerLookup)
             throws ClassNotFoundException, IllegalAccessException {
         Class<?> apiInterface = outerLookup.findClass("com.jetbrains.JBR$ServiceApi");

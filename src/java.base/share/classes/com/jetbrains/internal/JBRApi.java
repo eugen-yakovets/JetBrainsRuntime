@@ -30,13 +30,80 @@ import java.util.function.BiFunction;
 
 import static java.lang.invoke.MethodHandles.Lookup;
 
+/**
+ * JBR API is a collection of JBR-specific features that are accessed by client though
+ * {@link com.jetbrains.JBR jetbrains.api} module. Actual implementation is linked by
+ * JBR at runtime by generating {@linkplain Proxy proxy objects}.
+ * Mapping between interfaces and implementation code is defined in
+ * {@linkplain com.jetbrains.bootstrap.JBRApiBootstrap#MODULES registry classes}.
+ * <p>
+ * This class has most basic methods for working with JBR API and cache of generated proxies.
+ * <p>
+ * <h2>How to add a new service</h2>
+ * <ol>
+ *     <li>Create your service interface in module {@link com.jetbrains.JBR jetbrains.api}:
+ *         <blockquote><pre>{@code
+ *         package com.jetbrains;
+ *
+ *         interface StringOptimizer {
+ *             void optimize(String string);
+ *         }
+ *         }</pre></blockquote>
+ *     </li>
+ *     <li>Create an implementation inside JBR:
+ *         <blockquote><pre>{@link java.lang.String java.lang.String}:{@code
+ *         private static void optimizeInternal(String string) {
+ *             string.hash = 0;
+ *             string.hashIsZero = true;
+ *         }
+ *         }</pre></blockquote>
+ *     </li>
+ *     <li>Register your service in corresponding
+ *     {@linkplain com.jetbrains.bootstrap.JBRApiBootstrap#MODULES module registry class}:
+ *         <blockquote><pre>{@link com.jetbrains.base.JBRApiModule}:{@code
+ *         .service("com.jetbrains.StringOptimizer", null)
+ *             .withStatic("optimize", "java.lang.String", "optimizeInternal")
+ *         }</pre></blockquote>
+ *     </li>
+ *     <li>You can also bind the interface to implementation class
+ *     (without actually implementing the interface):
+ *         <blockquote><pre>{@link java.lang.String java.lang.String}:{@code
+ *         private static class StringOptimizerImpl {
+ *
+ *             private void optimize(String string) {
+ *                 string.hash = 0;
+ *                 string.hashIsZero = true;
+ *             }
+ *         }
+ *         }</pre></blockquote>
+ *         <blockquote><pre>{@link com.jetbrains.base.JBRApiModule}:{@code
+ *         .service("com.jetbrains.StringOptimizer", "java.lang.String$StringOptimizerImpl")
+ *         }</pre></blockquote>
+ *     </li>
+ * </ol>
+ * <h2>How to add a new proxy</h2>
+ * Registering a proxy is similar to registering a service:
+ * <blockquote><pre>{@code
+ * .proxy("com.jetbrains.SomeProxy", "a.b.c.SomeProxyImpl")
+ * }</pre></blockquote>
+ * Note that unlike service, proxy <b>must</b> have a target type.
+ * Also, proxy expects target object as a single constructor argument
+ * and can only be instantiated by JBR, there's no API that would allow
+ * user to directly create proxy object.
+ */
 public class JBRApi {
 
     private static final Map<String, RegisteredProxyInfo> registeredProxyInfoByInterfaceName = new HashMap<>();
     private static final Map<String, RegisteredProxyInfo> registeredProxyInfoByTargetName = new HashMap<>();
     private static final ConcurrentMap<Class<?>, Proxy<?>> proxyByInterface = new ConcurrentHashMap<>();
 
+    /**
+     * lookup context inside {@code jetbrains.api} module
+     */
     static Lookup outerLookup;
+    /**
+     * Known service and proxy interfaces extracted from {@link com.jetbrains.JBR.Metadata}
+     */
     static Set<String> knownServices, knownProxies;
 
     public static void init(Lookup outerLookup) {
@@ -54,15 +121,19 @@ public class JBRApi {
         }
     }
 
+    /**
+     * @return fully supported service implementation for the given interface, or null
+     * @apiNote this method is a part of internal {@link com.jetbrains.JBR.ServiceApi}
+     * service, but is not directly exposed to user.
+     */
     public static <T> T getService(Class<T> interFace) {
         Proxy<T> p = getProxy(interFace);
         return p.isFullySupported() ? p.getInstance() : null;
     }
 
-    public static <T> T getServicePartialSupport(Class<T> interFace) {
-        return getProxy(interFace).getInstance();
-    }
-
+    /**
+     * @return proxy for the given interface, or {@link Proxy#NULL}
+     */
     @SuppressWarnings("unchecked")
     public static <T> Proxy<T> getProxy(Class<T> interFace) {
         return (Proxy<T>) proxyByInterface.computeIfAbsent(interFace, i -> {
@@ -73,17 +144,21 @@ public class JBRApi {
         });
     }
 
-    public static ModuleRegistry registerModule(Lookup lookup, BiFunction<String, Module, Module> addExports) {
-        addExports.apply(lookup.lookupClass().getPackageName(), outerLookup.lookupClass().getModule());
-        return new ModuleRegistry(lookup);
-    }
-
+    /**
+     * @return true if given class represents a proxy interface. Even if {@code jetbrains.api}
+     * introduces new interfaces JBR is not aware of, these interfaces would still be detected
+     * by this method.
+     */
     static boolean isKnownProxyInterface(Class<?> clazz) {
         String name = clazz.getName();
         return registeredProxyInfoByInterfaceName.containsKey(name) ||
                 knownServices.contains(name) || knownProxies.contains(name);
     }
 
+    /**
+     * Reverse lookup by proxy target type name.
+     * @return user-side interface for given implementation target type name.
+     */
     static Class<?> getProxyInterfaceByTargetName(String targetName) {
         RegisteredProxyInfo info = registeredProxyInfoByTargetName.get(targetName);
         if (info == null) return null;
@@ -93,6 +168,15 @@ public class JBRApi {
         } catch (ClassNotFoundException | IllegalAccessException e) {
             return null;
         }
+    }
+
+    /**
+     * Called by {@linkplain com.jetbrains.bootstrap.JBRApiBootstrap#MODULES registry classes}
+     * to register a new mapping for corresponding modules.
+     */
+    public static ModuleRegistry registerModule(Lookup lookup, BiFunction<String, Module, Module> addExports) {
+        addExports.apply(lookup.lookupClass().getPackageName(), outerLookup.lookupClass().getModule());
+        return new ModuleRegistry(lookup);
     }
 
     public static class ModuleRegistry {
@@ -111,24 +195,40 @@ public class JBRApi {
             return this;
         }
 
+        /**
+         * Register new {@linkplain ProxyInfo.Type#PROXY proxy} mapping.
+         */
         public ModuleRegistry proxy(String interfaceName, String target) {
             Objects.requireNonNull(target);
             return addProxy(interfaceName, target, ProxyInfo.Type.PROXY);
         }
 
+        /**
+         * Register new {@linkplain ProxyInfo.Type#SERVICE service} mapping.
+         */
         public ModuleRegistry service(String interfaceName, String target) {
             return addProxy(interfaceName, target, ProxyInfo.Type.SERVICE);
         }
 
+        /**
+         * Register new {@linkplain ProxyInfo.Type#CLIENT_PROXY client proxy} mapping.
+         */
         public ModuleRegistry clientProxy(String interfaceName, String target) {
             Objects.requireNonNull(target);
             return addProxy(interfaceName, target, ProxyInfo.Type.CLIENT_PROXY);
         }
 
+        /**
+         * Delegate interface "{@code methodName}" calls to static "{@code methodName}" in "{@code clazz}".
+         * @see #withStatic(String, String, String)
+         */
         public ModuleRegistry withStatic(String methodName, String clazz) {
             return withStatic(methodName, clazz, methodName);
         }
 
+        /**
+         * Delegate "{@code interfaceMethodName}" method calls to static "{@code methodName}" in "{@code clazz}".
+         */
         public ModuleRegistry withStatic(String interfaceMethodName, String clazz, String methodName) {
             lastProxy.staticMethods().add(
                     new RegisteredProxyInfo.StaticMethodMapping(interfaceMethodName, clazz, methodName));

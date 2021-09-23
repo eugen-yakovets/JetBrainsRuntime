@@ -34,6 +34,9 @@ import java.lang.reflect.Method;
 
 import static jdk.internal.org.objectweb.asm.Opcodes.*;
 
+/**
+ * Utility class that helps with bytecode generation
+ */
 class ASMUtils {
 
     private static final MethodHandle genericSignatureGetter;
@@ -78,10 +81,20 @@ class ASMUtils {
         }
     }
 
+    /**
+     * Adds type descriptor "{@code instanceDescriptor}" as first argument to given method descriptor
+     * as if instance method is called using method handle.
+     * <pre>{@code (IJZ)V + Linstance/Type; = (Linstance/Type;IJZ)V}</pre>
+     */
     public static String expandMethodHandleDescriptorForInstance(String descriptor, String instanceDescriptor) {
         return "(" + instanceDescriptor + descriptor.substring(1);
     }
 
+    /**
+     * Adds type descriptor "{@code instanceDescriptor}" as first argument to given generic method signature
+     * as if instance method is called using method handle.
+     * @see #expandMethodHandleDescriptorForInstance
+     */
     public static String expandMethodHandleSignatureForInstance(String genericSignature, String instanceDescriptor) {
         if (genericSignature == null) return null;
         int sigInsertIndex = genericSignature.indexOf('(') + 1;

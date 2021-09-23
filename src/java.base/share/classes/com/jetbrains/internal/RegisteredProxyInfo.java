@@ -26,6 +26,10 @@ package com.jetbrains.internal;
 import java.lang.invoke.MethodHandles;
 import java.util.List;
 
+/**
+ * Raw proxy info, as it was registered through {@link JBRApi.ModuleRegistry}.
+ * Contains all necessary information to create a {@linkplain Proxy proxy}.
+ */
 record RegisteredProxyInfo(MethodHandles.Lookup apiModule,
                            String interfaceName,
                            String target,
