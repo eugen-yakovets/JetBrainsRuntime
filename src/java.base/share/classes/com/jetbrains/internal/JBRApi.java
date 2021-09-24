@@ -128,19 +128,19 @@ public class JBRApi {
      */
     public static <T> T getService(Class<T> interFace) {
         Proxy<T> p = getProxy(interFace);
-        return p.isFullySupported() ? p.getInstance() : null;
+        return p.isSupported() ? p.getInstance() : null;
     }
 
     /**
      * @return proxy for the given interface, or {@link Proxy#NULL}
      */
     @SuppressWarnings("unchecked")
-    public static <T> Proxy<T> getProxy(Class<T> interFace) {
+    static <T> Proxy<T> getProxy(Class<T> interFace) {
         return (Proxy<T>) proxyByInterface.computeIfAbsent(interFace, i -> {
             RegisteredProxyInfo info = registeredProxyInfoByInterfaceName.get(i.getName());
             if (info == null) return Proxy.NULL;
             ProxyInfo resolved = ProxyInfo.resolve(info);
-            return resolved != null ? new Proxy.Impl<T>(resolved) : Proxy.NULL;
+            return resolved != null ? Proxy.create(resolved) : Proxy.NULL;
         });
     }
 

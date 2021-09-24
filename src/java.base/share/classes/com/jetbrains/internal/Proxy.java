@@ -50,32 +50,43 @@ import java.lang.invoke.MethodHandle;
  * {@linkplain com.jetbrains.bootstrap.JBRApiBootstrap#MODULES registry classes}.
  * @param <INTERFACE> interface type for this proxy.
  */
-public class Proxy<INTERFACE> {
+class Proxy<INTERFACE> {
     static final Proxy<?> NULL = new Proxy<>();
+
+    private Proxy() {}
 
     /**
      * Checks if implementation is found for all abstract interface methods of this proxy.
      */
-    public boolean areAllMethodsImplemented() { return false; }
+    boolean areAllMethodsImplemented() { return false; }
 
     /**
      * Checks if all methods are {@linkplain #areAllMethodsImplemented() implemented}
      * for this proxy and all proxies it {@linkplain ProxyDependencyManager uses}.
      */
-    public boolean isFullySupported() { return false; }
+    boolean isSupported() { return false; }
 
     /**
-     * Create new proxy object, returns {@code null} for {@linkplain ProxyInfo.Type#SERVICE services}.
+     * Returns method handle for the constructor of this proxy.
+     * <ul>
+     *     <li>For {@linkplain ProxyInfo.Type#SERVICE services}, constructor is no-arg.</li>
+     *     <li>For non-{@linkplain ProxyInfo.Type#SERVICE services}, constructor is single-arg,
+     *     expecting target object to which it would delegate method calls.</li>
+     * </ul>
      */
-    public INTERFACE newInstance(Object target) { return null; }
+    MethodHandle getConstructor() { return null; }
 
     /**
      * Returns instance for this {@linkplain ProxyInfo.Type#SERVICE service},
      * returns {@code null} for other proxy types.
      */
-    public INTERFACE getInstance() { return null; }
+    INTERFACE getInstance() { return null; }
 
-    static class Impl<INTERFACE> extends Proxy<INTERFACE> {
+    static <T> Proxy<T> create(ProxyInfo info) {
+        return new Impl<>(info);
+    }
+
+    private static class Impl<INTERFACE> extends Proxy<INTERFACE> {
         private final ProxyInfo info;
 
         private volatile ProxyGenerator generator;
@@ -87,7 +98,7 @@ public class Proxy<INTERFACE> {
 
         private volatile INTERFACE instance;
 
-        Impl(ProxyInfo info) {
+        private Impl(ProxyInfo info) {
             this.info = info;
         }
 
@@ -98,7 +109,7 @@ public class Proxy<INTERFACE> {
         }
 
         @Override
-        public boolean areAllMethodsImplemented() {
+        boolean areAllMethodsImplemented() {
             if (allMethodsImplemented != null) return allMethodsImplemented;
             synchronized (this) {
                 if (allMethodsImplemented == null) initGenerator();
@@ -107,7 +118,7 @@ public class Proxy<INTERFACE> {
         }
 
         @Override
-        public boolean isFullySupported() {
+        boolean isSupported() {
             if (fullySupported != null) return fullySupported;
             synchronized (this) {
                 if (fullySupported == null) {
@@ -123,7 +134,8 @@ public class Proxy<INTERFACE> {
             }
         }
 
-        private MethodHandle getConstructor() {
+        @Override
+        MethodHandle getConstructor() {
             if (constructor != null) return constructor;
             synchronized (this) {
                 if (constructor == null) {
@@ -137,18 +149,7 @@ public class Proxy<INTERFACE> {
 
         @SuppressWarnings("unchecked")
         @Override
-        public INTERFACE newInstance(Object target) {
-            if (info.type == ProxyInfo.Type.SERVICE) return null;
-            try {
-                return (INTERFACE) getConstructor().invoke(target);
-            } catch (Throwable e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        @SuppressWarnings("unchecked")
-        @Override
-        public INTERFACE getInstance() {
+        INTERFACE getInstance() {
             if (instance != null) return instance;
             if (info.type != ProxyInfo.Type.SERVICE) return null;
             synchronized (this) {
