@@ -81,6 +81,15 @@ public class JBR {
     }
 
     /**
+     * @return JBR API version in form {@code MAJOR.MINOR.PATCH}
+     * @implNote This is an API version, which comes with client application,
+     * it has nothing to do with JRE it runs on.
+     */
+    public static String getApiVersion() {
+        return "/*API_VERSION*/";
+    }
+
+    /**
      * Internal API interface, contains most basic methods for communication between client and JBR.
      */
     private interface ServiceApi {

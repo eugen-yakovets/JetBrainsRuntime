@@ -44,19 +44,22 @@ import static java.util.regex.Pattern.compile;
  */
 public class Gensrc {
 
-    private static Path srcroot, src, templates, gensrc;
+    private static Path srcroot, module, src, templates, gensrc;
     private static JBRModules modules;
 
     /**
-     * $0 - absolute path to jetbrains.api module
-     * $1 - absolute path to generated sources dir
+     * <ul>
+     *     <li>$0 - absolute path to {@code JetBrainsRuntime/src} dir</li>
+     *     <li>$1 - absolute path to jbr-api output dir ({@code JetBrainsRuntime/build/<conf>/jbr-api})</li>
+     * </ul>
      */
     public static void main(String[] args) throws IOException {
-        Path module = Path.of(args[0]);
-        srcroot = module.getParent();
+        srcroot = Path.of(args[0]);
+        module = srcroot.resolve("jetbrains.api");
         src = module.resolve("src");
         templates = module.resolve("templates");
-        gensrc = Path.of(args[1]);
+        Path output = Path.of(args[1]);
+        gensrc = output.resolve("gensrc");
         modules = new JBRModules();
         JBR.generate();
     }
@@ -98,7 +101,7 @@ public class Gensrc {
             Files.writeString(output, content, CREATE, WRITE, TRUNCATE_EXISTING);
         }
 
-        private static String generate(String content) {
+        private static String generate(String content) throws IOException {
             Service[] interfaces = findPublicServiceInterfaces();
             List<String> statements = new ArrayList<>();
             for (Service i : interfaces) statements.add(generateMethodsForService(i));
@@ -107,7 +110,14 @@ public class Gensrc {
                     modules.services.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(", ")));
             content = content.replace("/*KNOWN_PROXIES*/",
                     modules.proxies.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(", ")));
+            content = content.replace("/*API_VERSION*/", getApiVersion());
             return content;
+        }
+
+        private static String getApiVersion() throws IOException {
+            Properties props = new Properties();
+            props.load(Files.newInputStream(module.resolve("version.properties")));
+            return props.getProperty("VERSION");
         }
 
         private static Service[] findPublicServiceInterfaces() {
