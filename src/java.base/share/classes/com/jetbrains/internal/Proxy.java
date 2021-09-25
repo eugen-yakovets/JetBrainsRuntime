@@ -24,6 +24,9 @@
 package com.jetbrains.internal;
 
 import java.lang.invoke.MethodHandle;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Proxy is needed to dynamically link JBR API interfaces and implementation at runtime.
@@ -57,7 +60,7 @@ class Proxy<INTERFACE> {
     private volatile String proxyClassName;
     private volatile Boolean allMethodsImplemented;
 
-    private volatile Boolean fullySupported;
+    private volatile Boolean supported;
 
     private volatile MethodHandle constructor;
     private volatile MethodHandle targetExtractor;
@@ -109,19 +112,20 @@ class Proxy<INTERFACE> {
      * for this proxy and all proxies it {@linkplain ProxyDependencyManager uses}.
      */
     boolean isSupported() {
-        if (fullySupported != null) return fullySupported;
+        if (supported != null) return supported;
         synchronized (this) {
-            if (fullySupported == null) {
-                for (Class<?> d : ProxyDependencyManager.getProxyDependencies(info.interFace)) {
+            if (supported == null) {
+                Set<Class<?>> dependencies = ProxyDependencyManager.getProxyDependencies(info.interFace);
+                for (Class<?> d : dependencies) {
                     Proxy<?> p = JBRApi.getProxy(d);
                     if (p == null || !p.areAllMethodsImplemented()) {
-                        fullySupported = false;
+                        supported = false;
                         return false;
                     }
                 }
-                fullySupported = true;
+                supported = true;
             }
-            return fullySupported;
+            return supported;
         }
     }
 
@@ -131,7 +135,6 @@ class Proxy<INTERFACE> {
         generator.defineClasses();
         constructor = generator.findConstructor();
         targetExtractor = generator.findTargetExtractor();
-        generator = null;
     }
 
     /**
@@ -162,6 +165,36 @@ class Proxy<INTERFACE> {
         }
     }
 
+    private synchronized void initHandles(Set<Proxy<?>> actualUsages) {
+        defineClasses();
+        if (generator != null) {
+            actualUsages.addAll(generator.getDirectProxyDependencies());
+            generator.initHandles();
+            generator = null;
+        }
+    }
+    private synchronized void initDependencyTree() {
+        defineClasses();
+        if (generator == null) return;
+        Set<Class<?>> dependencyClasses = ProxyDependencyManager.getProxyDependencies(info.interFace);
+        Set<Proxy<?>> dependencies = new HashSet<>();
+        Set<Proxy<?>> actualUsages = new HashSet<>();
+        for (Class<?> d : dependencyClasses) {
+            Proxy<?> p = JBRApi.getProxy(d);
+            if (p != null) {
+                dependencies.add(p);
+                p.initHandles(actualUsages);
+            }
+        }
+        actualUsages.removeAll(dependencies);
+        if (!actualUsages.isEmpty()) {
+            // Should never happen, this is a sign of broken dependency search
+            throw new RuntimeException("Some proxies are not in dependencies of " + info.interFace.getName() +
+                    ", but are actually used by it: " +
+                    actualUsages.stream().map(p -> p.info.interFace.getName()).collect(Collectors.joining(", ")));
+        }
+    }
+
     /**
      * @return instance for this {@linkplain ProxyInfo.Type#SERVICE service},
      * returns {@code null} for other proxy types.
@@ -172,6 +205,7 @@ class Proxy<INTERFACE> {
         if (info.type != ProxyInfo.Type.SERVICE) return null;
         synchronized (this) {
             if (instance == null) {
+                initDependencyTree();
                 try {
                     instance = (INTERFACE) getConstructor().invoke();
                 } catch (Throwable e) {
