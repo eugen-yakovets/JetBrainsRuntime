@@ -37,6 +37,7 @@ class ProxyInfo {
 
     final Lookup apiModule;
     final Type type;
+    final Lookup interFaceLookup;
     final Class<?> interFace;
     final Lookup target;
     final Map<String, StaticMethodMapping> staticMethods = new HashMap<>();
@@ -44,8 +45,8 @@ class ProxyInfo {
     private ProxyInfo(RegisteredProxyInfo i) {
         this.apiModule = i.apiModule();
         type = i.type();
-        Lookup interFace = lookup(getInterfaceLookup(), i.interfaceName());
-        this.interFace = interFace == null ? null : interFace.lookupClass();
+        interFaceLookup = lookup(getInterfaceLookup(), i.interfaceName());
+        interFace = interFaceLookup == null ? null : interFaceLookup.lookupClass();
         target = i.target() == null ? null : lookup(getTargetLookup(), i.target());
         for (RegisteredProxyInfo.StaticMethodMapping m : i.staticMethods()) {
             Lookup l = lookup(getTargetLookup(), m.clazz());
@@ -60,7 +61,15 @@ class ProxyInfo {
      */
     static ProxyInfo resolve(RegisteredProxyInfo i) {
         ProxyInfo info = new ProxyInfo(i);
-        return info.interFace != null && (info.target != null || !info.staticMethods.isEmpty()) ? info : null;
+        if (info.interFace == null || (info.target == null && info.staticMethods.isEmpty())) return null;
+        if (!info.interFace.isInterface()) {
+            if (info.type == Type.CLIENT_PROXY) {
+                throw new RuntimeException("Tried to create client proxy for non-interface: " + info.interFace);
+            } else {
+                return null;
+            }
+        }
+        return info;
     }
 
     Lookup getInterfaceLookup() {

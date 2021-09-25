@@ -51,117 +51,134 @@ import java.lang.invoke.MethodHandle;
  * @param <INTERFACE> interface type for this proxy.
  */
 class Proxy<INTERFACE> {
-    static final Proxy<?> NULL = new Proxy<>();
+    private final ProxyInfo info;
 
-    private Proxy() {}
+    private volatile ProxyGenerator generator;
+    private volatile String proxyClassName;
+    private volatile Boolean allMethodsImplemented;
+
+    private volatile Boolean fullySupported;
+
+    private volatile MethodHandle constructor;
+    private volatile MethodHandle targetExtractor;
+
+    private volatile INTERFACE instance;
+
+    Proxy(ProxyInfo info) {
+        this.info = info;
+    }
+
+    /**
+     * @return {@link ProxyInfo} structure of this proxy
+     */
+    ProxyInfo getInfo() {
+        return info;
+    }
+
+    private synchronized void initGenerator() {
+        if (generator != null) return;
+        generator = new ProxyGenerator(info);
+        proxyClassName = generator.getProxyClassName();
+        allMethodsImplemented = generator.areAllMethodsImplemented();
+    }
+
+    /**
+     * @return name of generated proxy class
+     */
+    String getProxyClassName() {
+        if (proxyClassName != null) return proxyClassName;
+        synchronized (this) {
+            if (proxyClassName == null) initGenerator();
+            return proxyClassName;
+        }
+    }
 
     /**
      * Checks if implementation is found for all abstract interface methods of this proxy.
      */
-    boolean areAllMethodsImplemented() { return false; }
+    boolean areAllMethodsImplemented() {
+        if (allMethodsImplemented != null) return allMethodsImplemented;
+        synchronized (this) {
+            if (allMethodsImplemented == null) initGenerator();
+            return allMethodsImplemented;
+        }
+    }
 
     /**
      * Checks if all methods are {@linkplain #areAllMethodsImplemented() implemented}
      * for this proxy and all proxies it {@linkplain ProxyDependencyManager uses}.
      */
-    boolean isSupported() { return false; }
+    boolean isSupported() {
+        if (fullySupported != null) return fullySupported;
+        synchronized (this) {
+            if (fullySupported == null) {
+                for (Class<?> d : ProxyDependencyManager.getProxyDependencies(info.interFace)) {
+                    Proxy<?> p = JBRApi.getProxy(d);
+                    if (p == null || !p.areAllMethodsImplemented()) {
+                        fullySupported = false;
+                        return false;
+                    }
+                }
+                fullySupported = true;
+            }
+            return fullySupported;
+        }
+    }
+
+    private synchronized void defineClasses() {
+        if (constructor != null) return;
+        initGenerator();
+        generator.defineClasses();
+        constructor = generator.findConstructor();
+        targetExtractor = generator.findTargetExtractor();
+        generator = null;
+    }
 
     /**
-     * Returns method handle for the constructor of this proxy.
+     * @return method handle for the constructor of this proxy.
      * <ul>
      *     <li>For {@linkplain ProxyInfo.Type#SERVICE services}, constructor is no-arg.</li>
      *     <li>For non-{@linkplain ProxyInfo.Type#SERVICE services}, constructor is single-arg,
      *     expecting target object to which it would delegate method calls.</li>
      * </ul>
      */
-    MethodHandle getConstructor() { return null; }
-
-    /**
-     * Returns instance for this {@linkplain ProxyInfo.Type#SERVICE service},
-     * returns {@code null} for other proxy types.
-     */
-    INTERFACE getInstance() { return null; }
-
-    static <T> Proxy<T> create(ProxyInfo info) {
-        return new Impl<>(info);
+    MethodHandle getConstructor() {
+        if (constructor != null) return constructor;
+        synchronized (this) {
+            if (constructor == null) defineClasses();
+            return constructor;
+        }
     }
 
-    private static class Impl<INTERFACE> extends Proxy<INTERFACE> {
-        private final ProxyInfo info;
-
-        private volatile ProxyGenerator generator;
-        private volatile Boolean allMethodsImplemented;
-
-        private volatile Boolean fullySupported;
-
-        private volatile MethodHandle constructor;
-
-        private volatile INTERFACE instance;
-
-        private Impl(ProxyInfo info) {
-            this.info = info;
+    /**
+     * @return method handle for that extracts target object of the proxy, or null.
+     */
+    MethodHandle getTargetExtractor() {
+        // targetExtractor may be null, so check constructor instead
+        if (constructor != null) return targetExtractor;
+        synchronized (this) {
+            if (constructor == null) defineClasses();
+            return targetExtractor;
         }
+    }
 
-        private void initGenerator() {
-            if (generator != null) return;
-            generator = new ProxyGenerator(info);
-            allMethodsImplemented = generator.areAllMethodsImplemented();
-        }
-
-        @Override
-        boolean areAllMethodsImplemented() {
-            if (allMethodsImplemented != null) return allMethodsImplemented;
-            synchronized (this) {
-                if (allMethodsImplemented == null) initGenerator();
-                return allMethodsImplemented;
-            }
-        }
-
-        @Override
-        boolean isSupported() {
-            if (fullySupported != null) return fullySupported;
-            synchronized (this) {
-                if (fullySupported == null) {
-                    for (Class<?> d : ProxyDependencyManager.getProxyDependencies(info.interFace)) {
-                        if (!JBRApi.getProxy(d).areAllMethodsImplemented()) {
-                            fullySupported = false;
-                            return false;
-                        }
-                    }
-                    fullySupported = true;
+    /**
+     * @return instance for this {@linkplain ProxyInfo.Type#SERVICE service},
+     * returns {@code null} for other proxy types.
+     */
+    @SuppressWarnings("unchecked")
+    INTERFACE getInstance() {
+        if (instance != null) return instance;
+        if (info.type != ProxyInfo.Type.SERVICE) return null;
+        synchronized (this) {
+            if (instance == null) {
+                try {
+                    instance = (INTERFACE) getConstructor().invoke();
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
                 }
-                return fullySupported;
             }
-        }
-
-        @Override
-        MethodHandle getConstructor() {
-            if (constructor != null) return constructor;
-            synchronized (this) {
-                if (constructor == null) {
-                    initGenerator();
-                    constructor = generator.generate();
-                    generator = null;
-                }
-                return constructor;
-            }
-        }
-
-        @SuppressWarnings("unchecked")
-        @Override
-        INTERFACE getInstance() {
-            if (instance != null) return instance;
-            if (info.type != ProxyInfo.Type.SERVICE) return null;
-            synchronized (this) {
-                if (instance == null) {
-                    try {
-                        instance = (INTERFACE) getConstructor().invoke();
-                    } catch (Throwable e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-                return instance;
-            }
+            return instance;
         }
     }
 }

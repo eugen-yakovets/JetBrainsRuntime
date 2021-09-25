@@ -49,6 +49,7 @@ public class JBRApiBootstrap {
      */
     public static synchronized Object bootstrap(MethodHandles.Lookup outerLookup)
             throws ClassNotFoundException, IllegalAccessException {
+        if (System.getProperty("jetbrains.api.disable", "false").equals("true")) return null;
         Class<?> apiInterface = outerLookup.findClass("com.jetbrains.JBR$ServiceApi");
         if (!outerLookup.hasFullPrivilegeAccess() ||
                 outerLookup.lookupClass().getPackage() != apiInterface.getPackage()) {

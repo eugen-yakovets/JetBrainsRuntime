@@ -128,19 +128,19 @@ public class JBRApi {
      */
     public static <T> T getService(Class<T> interFace) {
         Proxy<T> p = getProxy(interFace);
-        return p.isSupported() ? p.getInstance() : null;
+        return p != null && p.isSupported() ? p.getInstance() : null;
     }
 
     /**
-     * @return proxy for the given interface, or {@link Proxy#NULL}
+     * @return proxy for the given interface, or {@code null}
      */
     @SuppressWarnings("unchecked")
     static <T> Proxy<T> getProxy(Class<T> interFace) {
         return (Proxy<T>) proxyByInterface.computeIfAbsent(interFace, i -> {
             RegisteredProxyInfo info = registeredProxyInfoByInterfaceName.get(i.getName());
-            if (info == null) return Proxy.NULL;
+            if (info == null) return null;
             ProxyInfo resolved = ProxyInfo.resolve(info);
-            return resolved != null ? Proxy.create(resolved) : Proxy.NULL;
+            return resolved != null ? new Proxy<>(resolved) : null;
         });
     }
 
@@ -191,31 +191,77 @@ public class JBRApi {
         private ModuleRegistry addProxy(String interfaceName, String target, ProxyInfo.Type type) {
             lastProxy = new RegisteredProxyInfo(lookup, interfaceName, target, type, new ArrayList<>());
             registeredProxyInfoByInterfaceName.put(interfaceName, lastProxy);
-            if (target != null) registeredProxyInfoByTargetName.put(target, lastProxy);
+            if (target != null) {
+                registeredProxyInfoByTargetName.put(target, lastProxy);
+                RegisteredProxyInfo reverse = registeredProxyInfoByInterfaceName.get(target);
+                if (reverse != null &&
+                        (!interfaceName.equals(reverse.target()) || !target.equals(reverse.interfaceName()))) {
+                    throw new IllegalArgumentException("Invalid 2-way proxy mapping: " +
+                            interfaceName + " -> " + target + " & " +
+                            reverse.interfaceName() + " -> " + reverse.target());
+                }
+            }
             return this;
         }
 
         /**
          * Register new {@linkplain ProxyInfo.Type#PROXY proxy} mapping.
+         * <p>
+         * When {@code target} object is passed from JBR to client through service or any other proxy,
+         * it's converted to corresponding {@code interFace} type by creating a proxy object
+         * that implements {@code interFace} and delegates method calls to {@code target}.
+         * @param interFace interface name in {@link com.jetbrains.JBR jetbrains.api} module.
+         * @param target corresponding class/interface name in current JBR module.
+         * @apiNote class name example: {@code pac.ka.ge.Outer$Inner}
          */
-        public ModuleRegistry proxy(String interfaceName, String target) {
+        public ModuleRegistry proxy(String interFace, String target) {
             Objects.requireNonNull(target);
-            return addProxy(interfaceName, target, ProxyInfo.Type.PROXY);
+            return addProxy(interFace, target, ProxyInfo.Type.PROXY);
         }
 
         /**
          * Register new {@linkplain ProxyInfo.Type#SERVICE service} mapping.
+         * <p>
+         * Service is a singleton, which may be accessed by client using {@link com.jetbrains.JBR} class.
+         * @param interFace interface name in {@link com.jetbrains.JBR jetbrains.api} module.
+         * @param target corresponding implementation class name in current JBR module, or null.
+         * @apiNote class name example: {@code pac.ka.ge.Outer$Inner}
          */
-        public ModuleRegistry service(String interfaceName, String target) {
-            return addProxy(interfaceName, target, ProxyInfo.Type.SERVICE);
+        public ModuleRegistry service(String interFace, String target) {
+            return addProxy(interFace, target, ProxyInfo.Type.SERVICE);
         }
 
         /**
          * Register new {@linkplain ProxyInfo.Type#CLIENT_PROXY client proxy} mapping.
+         * This mapping type allows implementation of callbacks.
+         * <p>
+         * When {@code target} object is passed from client to JBR through service or any other proxy,
+         * it's converted to corresponding {@code interFace} type by creating a proxy object
+         * that implements {@code interFace} and delegates method calls to {@code target}.
+         * @param interFace interface name in current JBR module.
+         * @param target corresponding class/interface name in {@link com.jetbrains.JBR jetbrains.api} module.
+         * @apiNote class name example: {@code pac.ka.ge.Outer$Inner}
          */
-        public ModuleRegistry clientProxy(String interfaceName, String target) {
+        public ModuleRegistry clientProxy(String interFace, String target) {
             Objects.requireNonNull(target);
-            return addProxy(interfaceName, target, ProxyInfo.Type.CLIENT_PROXY);
+            return addProxy(interFace, target, ProxyInfo.Type.CLIENT_PROXY);
+        }
+
+        /**
+         * Register new 2-way mapping.
+         * It creates both {@linkplain ProxyInfo.Type#PROXY proxy} and
+         * {@linkplain ProxyInfo.Type#CLIENT_PROXY client proxy} between given interfaces.
+         * <p>
+         * It links together two given interfaces and allows passing such objects back and forth
+         * between JBR and {@link com.jetbrains.JBR jetbrains.api} module through services and other proxy methods.
+         * @param apiInterface interface name in {@link com.jetbrains.JBR jetbrains.api} module.
+         * @param jbrInterface interface name in current JBR module.
+         * @apiNote class name example: {@code pac.ka.ge.Outer$Inner}
+         */
+        public ModuleRegistry twoWayProxy(String apiInterface, String jbrInterface) {
+            clientProxy(jbrInterface, apiInterface);
+            proxy(apiInterface, jbrInterface);
+            return this;
         }
 
         /**

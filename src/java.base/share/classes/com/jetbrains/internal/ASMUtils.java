@@ -65,7 +65,7 @@ class ASMUtils {
     }
 
     protected record InternalMethodInfo(String name, String descriptor, String genericSignature,
-                              Class<?>[] parameterTypes, Class<?> returnType, String[] exceptionNames) {}
+                                        String[] exceptionNames) {}
 
     public static InternalMethodInfo getInternalMethodInfo(Method method) {
         try {
@@ -73,33 +73,10 @@ class ASMUtils {
                     method.getName(),
                     Type.getMethodDescriptor(method),
                     (String) genericSignatureGetter.invoke(method),
-                    method.getParameterTypes(),
-                    method.getReturnType(),
                     getExceptionNames(method));
         } catch (Throwable e) {
             throw new Error(e);
         }
-    }
-
-    /**
-     * Adds type descriptor "{@code instanceDescriptor}" as first argument to given method descriptor
-     * as if instance method is called using method handle.
-     * <pre>{@code (IJZ)V + Linstance/Type; = (Linstance/Type;IJZ)V}</pre>
-     */
-    public static String expandMethodHandleDescriptorForInstance(String descriptor, String instanceDescriptor) {
-        return "(" + instanceDescriptor + descriptor.substring(1);
-    }
-
-    /**
-     * Adds type descriptor "{@code instanceDescriptor}" as first argument to given generic method signature
-     * as if instance method is called using method handle.
-     * @see #expandMethodHandleDescriptorForInstance
-     */
-    public static String expandMethodHandleSignatureForInstance(String genericSignature, String instanceDescriptor) {
-        if (genericSignature == null) return null;
-        int sigInsertIndex = genericSignature.indexOf('(') + 1;
-        return genericSignature.substring(0, sigInsertIndex) +
-                instanceDescriptor + genericSignature.substring(sigInsertIndex);
     }
 
     private static String[] getExceptionNames(Method method) {
