@@ -57,11 +57,11 @@ class Proxy<INTERFACE> {
     private final ProxyInfo info;
 
     private volatile ProxyGenerator generator;
-    private volatile String proxyClassName;
     private volatile Boolean allMethodsImplemented;
 
     private volatile Boolean supported;
 
+    private volatile Class<?> proxyClass;
     private volatile MethodHandle constructor;
     private volatile MethodHandle targetExtractor;
 
@@ -81,19 +81,7 @@ class Proxy<INTERFACE> {
     private synchronized void initGenerator() {
         if (generator != null) return;
         generator = new ProxyGenerator(info);
-        proxyClassName = generator.getProxyClassName();
         allMethodsImplemented = generator.areAllMethodsImplemented();
-    }
-
-    /**
-     * @return name of generated proxy class
-     */
-    String getProxyClassName() {
-        if (proxyClassName != null) return proxyClassName;
-        synchronized (this) {
-            if (proxyClassName == null) initGenerator();
-            return proxyClassName;
-        }
     }
 
     /**
@@ -133,8 +121,20 @@ class Proxy<INTERFACE> {
         if (constructor != null) return;
         initGenerator();
         generator.defineClasses();
+        proxyClass = generator.getProxyClass();
         constructor = generator.findConstructor();
         targetExtractor = generator.findTargetExtractor();
+    }
+
+    /**
+     * @return generated proxy class
+     */
+    Class<?> getProxyClass() {
+        if (proxyClass != null) return proxyClass;
+        synchronized (this) {
+            if (proxyClass == null) defineClasses();
+            return proxyClass;
+        }
     }
 
     /**
@@ -165,15 +165,15 @@ class Proxy<INTERFACE> {
         }
     }
 
-    private synchronized void initHandles(Set<Proxy<?>> actualUsages) {
+    private synchronized void initClass(Set<Proxy<?>> actualUsages) {
         defineClasses();
         if (generator != null) {
             actualUsages.addAll(generator.getDirectProxyDependencies());
-            generator.initHandles();
+            generator.init();
             generator = null;
         }
     }
-    private synchronized void initDependencyTree() {
+    private synchronized void initDependencyGraph() {
         defineClasses();
         if (generator == null) return;
         Set<Class<?>> dependencyClasses = ProxyDependencyManager.getProxyDependencies(info.interFace);
@@ -183,7 +183,7 @@ class Proxy<INTERFACE> {
             Proxy<?> p = JBRApi.getProxy(d);
             if (p != null) {
                 dependencies.add(p);
-                p.initHandles(actualUsages);
+                p.initClass(actualUsages);
             }
         }
         actualUsages.removeAll(dependencies);
@@ -205,7 +205,7 @@ class Proxy<INTERFACE> {
         if (info.type != ProxyInfo.Type.SERVICE) return null;
         synchronized (this) {
             if (instance == null) {
-                initDependencyTree();
+                initDependencyGraph();
                 try {
                     instance = (INTERFACE) getConstructor().invoke();
                 } catch (Throwable e) {

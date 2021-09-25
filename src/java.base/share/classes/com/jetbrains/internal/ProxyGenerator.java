@@ -66,6 +66,7 @@ class ProxyGenerator {
     private final String proxyName, bridgeName;
     private final ClassVisitor proxyWriter, bridgeWriter;
     private final List<Supplier<MethodHandle>> handles = new ArrayList<>();
+    private final List<Supplier<Class<?>>> classReferences = new ArrayList<>();
     private final Set<Proxy<?>> directProxyDependencies = new HashSet<>();
     private final List<Exception> exceptions = new ArrayList<>();
     private boolean allMethodsImplemented = true;
@@ -100,10 +101,6 @@ class ProxyGenerator {
         generateMethods();
     }
 
-    String getProxyClassName() {
-        return proxyName.replace('/', '.');
-    }
-
     boolean areAllMethodsImplemented() {
         return allMethodsImplemented;
     }
@@ -113,18 +110,27 @@ class ProxyGenerator {
     }
 
     /**
-     * Insert all method handles into static fields, so that proxy can call implementation methods.
+     * Insert all method handles and class references into static fields, so that proxy can call implementation methods.
      */
-    void initHandles() {
+    void init() {
         try {
             for (int i = 0; i < handles.size(); i++) {
                 generatedHandlesHolder
                         .findStaticVarHandle(generatedHandlesHolder.lookupClass(), "h" + i, MethodHandle.class)
                         .set(handles.get(i).get());
             }
+            for (int i = 0; i < classReferences.size(); i++) {
+                generatedHandlesHolder
+                        .findStaticVarHandle(generatedHandlesHolder.lookupClass(), "c" + i, Class.class)
+                        .set(classReferences.get(i).get());
+            }
         } catch (NoSuchFieldException | IllegalAccessException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    Class<?> getProxyClass() {
+        return generatedProxy.lookupClass();
     }
 
     /**
@@ -260,6 +266,12 @@ class ProxyGenerator {
                 m.metadata.proxyConstructorHandle = addHandle(handleWriter, to::getConstructor);
                 directProxyDependencies.add(to);
             }
+            if (m.conversion() == TypeConversion.DYNAMIC_2_WAY) {
+                String classField = "c" + classReferences.size();
+                m.metadata.extractableClassField = classField;
+                classReferences.add(m.fromProxy()::getProxyClass);
+                handleWriter.visitField(ACC_PRIVATE | ACC_STATIC, classField, "Ljava/lang/Class;", null, null);
+            }
         }
 
         MethodVisitor p = proxyWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, methodInfo.name(),
@@ -313,11 +325,9 @@ class ProxyGenerator {
             case DYNAMIC_2_WAY -> {
                 m.visitInsn(DUP);
                 m.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Object", "getClass", "()Ljava/lang/Class;", false);
-                m.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Class", "getName", "()Ljava/lang/String;", false);
-                m.visitLdcInsn(mapping.fromProxy.getProxyClassName());
-                m.visitMethodInsn(INVOKEVIRTUAL, "java/lang/String", "startsWith", "(Ljava/lang/String;)Z", false);
+                m.visitFieldInsn(GETSTATIC, handlesHolderName, mapping.metadata.extractableClassField, "Ljava/lang/Class;");
                 Label elseBranch = new Label(), afterBranch = new Label();
-                m.visitJumpInsn(IFEQ, elseBranch);
+                m.visitJumpInsn(IF_ACMPNE, elseBranch);
                 m.visitFieldInsn(GETSTATIC, handlesHolderName, mapping.metadata.extractTargetHandle, MH_DESCRIPTOR);
                 m.visitJumpInsn(GOTO, afterBranch);
                 m.visitLabel(elseBranch);
@@ -412,7 +422,7 @@ class ProxyGenerator {
     }
 
     private static class TypeMappingMetadata {
-        private String extractTargetHandle, proxyConstructorHandle;
+        private String extractTargetHandle, proxyConstructorHandle, extractableClassField;
     }
 
     private enum TypeConversion {
