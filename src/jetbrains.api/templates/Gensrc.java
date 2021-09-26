@@ -185,7 +185,7 @@ public class Gensrc {
         }
 
         private void findInModule(String content) {
-            Pattern servicePattern = compile("(service|proxy)\s*\\(([^)]+)");
+            Pattern servicePattern = compile("(service|proxy|twoWayProxy)\s*\\(([^)]+)");
             Matcher matcher = servicePattern.matcher(content);
             while (matcher.find()) {
                 String type = matcher.group(1);

@@ -86,8 +86,8 @@ class ProxyGenerator {
         bridgeName = generateBridge ? info.apiModule.lookupClass().getPackageName().replace('.', '/') + "/" +
                 info.interFace.getSimpleName() + "$$JBRApiBridge$" + nameId : null;
 
-        proxyWriter = new ClassWriter(ClassWriter.COMPUTE_MAXS);
-        bridgeWriter = generateBridge ? new ClassWriter(ClassWriter.COMPUTE_MAXS) : new ClassVisitor(ASM_VERSION) {
+        proxyWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        bridgeWriter = generateBridge ? new ClassWriter(ClassWriter.COMPUTE_FRAMES) : new ClassVisitor(ASM_VERSION) {
             @Override
             public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
                 return new MethodVisitor(api) {};

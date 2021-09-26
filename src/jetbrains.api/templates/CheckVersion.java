@@ -54,6 +54,7 @@ public class CheckVersion {
         String hash = SourceHash.calculate();
 
         if (hash.equals(props.getProperty("HASH"))) {
+            Files.createDirectories(bin);
             Files.writeString(bin.resolve("jbr-api.version"), props.getProperty("VERSION"),
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             return;

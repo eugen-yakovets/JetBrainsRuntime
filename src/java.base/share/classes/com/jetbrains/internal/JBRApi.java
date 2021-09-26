@@ -193,15 +193,18 @@ public class JBRApi {
             registeredProxyInfoByInterfaceName.put(interfaceName, lastProxy);
             if (target != null) {
                 registeredProxyInfoByTargetName.put(target, lastProxy);
-                RegisteredProxyInfo reverse = registeredProxyInfoByInterfaceName.get(target);
-                if (reverse != null &&
-                        (!interfaceName.equals(reverse.target()) || !target.equals(reverse.interfaceName()))) {
-                    throw new IllegalArgumentException("Invalid 2-way proxy mapping: " +
-                            interfaceName + " -> " + target + " & " +
-                            reverse.interfaceName() + " -> " + reverse.target());
-                }
+                validate2WayMapping(lastProxy, registeredProxyInfoByInterfaceName.get(target));
+                validate2WayMapping(lastProxy, registeredProxyInfoByTargetName.get(interfaceName));
             }
             return this;
+        }
+        private static void validate2WayMapping(RegisteredProxyInfo p, RegisteredProxyInfo reverse) {
+            if (reverse != null &&
+                    (!p.interfaceName().equals(reverse.target()) || !p.target().equals(reverse.interfaceName()))) {
+                throw new IllegalArgumentException("Invalid 2-way proxy mapping: " +
+                        p.interfaceName() + " -> " + p.target() + " & " +
+                        reverse.interfaceName() + " -> " + reverse.target());
+            }
         }
 
         /**

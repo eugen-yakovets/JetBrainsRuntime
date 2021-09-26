@@ -47,19 +47,22 @@ public class JBRApiBootstrap {
      * @param outerLookup lookup context inside {@code jetbrains.api} module
      * @return implementation for {@link com.jetbrains.JBR.ServiceApi} interface
      */
-    public static synchronized Object bootstrap(MethodHandles.Lookup outerLookup)
-            throws ClassNotFoundException, IllegalAccessException {
+    public static synchronized Object bootstrap(MethodHandles.Lookup outerLookup) {
         if (System.getProperty("jetbrains.api.disable", "false").equals("true")) return null;
-        Class<?> apiInterface = outerLookup.findClass("com.jetbrains.JBR$ServiceApi");
-        if (!outerLookup.hasFullPrivilegeAccess() ||
-                outerLookup.lookupClass().getPackage() != apiInterface.getPackage()) {
-            throw new IllegalArgumentException("Lookup must be full-privileged from the com.jetbrains package: " +
-                    outerLookup.lookupClass().getName());
+        try {
+            Class<?> apiInterface = outerLookup.findClass("com.jetbrains.JBR$ServiceApi");
+            if (!outerLookup.hasFullPrivilegeAccess() ||
+                    outerLookup.lookupClass().getPackage() != apiInterface.getPackage()) {
+                throw new IllegalArgumentException("Lookup must be full-privileged from the com.jetbrains package: " +
+                        outerLookup.lookupClass().getName());
+            }
+            JBRApi.init(outerLookup);
+            ClassLoader classLoader = ClassLoaders.platformClassLoader();
+            for (String m : MODULES) Class.forName(m, true, classLoader);
+            return JBRApi.getService(apiInterface);
+        } catch(ClassNotFoundException | IllegalAccessException e) {
+            throw new RuntimeException(e);
         }
-        JBRApi.init(outerLookup);
-        ClassLoader classLoader = ClassLoaders.platformClassLoader();
-        for (String m : MODULES) Class.forName(m, true, classLoader);
-        return JBRApi.getService(apiInterface);
     }
 
 }
