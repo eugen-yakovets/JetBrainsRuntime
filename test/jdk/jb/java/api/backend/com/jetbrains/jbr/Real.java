@@ -41,6 +41,8 @@ public class Real {
         JBRLazyNumber sum(JBRLazyNumber a, JBRLazyNumber b) {
             return () -> a.get() + b.get();
         }
+        void testMethodNameConflict(JBR2Way a) {}
+        void testMethodNameConflict(JBRLazyNumber a) {}
     }
 
     @FunctionalInterface

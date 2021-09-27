@@ -32,6 +32,12 @@ public class Real {
         Api2Way passthrough(Api2Way a);
         boolean isSelf(Service a);
         ApiLazyNumber sum(ApiLazyNumber a, ApiLazyNumber b);
+        /**
+         * When generating bridge class, convertible method parameters are changed to Objects,
+         * which may cause name collisions
+         */
+        void testMethodNameConflict(Api2Way a);
+        void testMethodNameConflict(ApiLazyNumber a);
     }
 
     @FunctionalInterface

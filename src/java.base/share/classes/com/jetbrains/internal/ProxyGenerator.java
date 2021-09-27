@@ -69,6 +69,7 @@ class ProxyGenerator {
     private final List<Supplier<Class<?>>> classReferences = new ArrayList<>();
     private final Set<Proxy<?>> directProxyDependencies = new HashSet<>();
     private final List<Exception> exceptions = new ArrayList<>();
+    private int bridgeMethodCounter;
     private boolean allMethodsImplemented = true;
     private Lookup generatedHandlesHolder, generatedProxy;
 
@@ -273,10 +274,12 @@ class ProxyGenerator {
                 handleWriter.visitField(ACC_PRIVATE | ACC_STATIC, classField, "Ljava/lang/Class;", null, null);
             }
         }
+        String bridgeMethodName = methodInfo.name() + "$bridge$" + bridgeMethodCounter;
+        bridgeMethodCounter++;
 
         MethodVisitor p = proxyWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, methodInfo.name(),
                 methodInfo.descriptor(), methodInfo.genericSignature(), methodInfo.exceptionNames());
-        MethodVisitor b = bridgeWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, methodInfo.name(),
+        MethodVisitor b = bridgeWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, bridgeMethodName,
                 bridgeMethodDescriptor, null, null);
         MethodVisitor bp = generateBridge ? b : p;
         bp.visitFieldInsn(GETSTATIC, bridgeOrProxyName, handleName, MH_DESCRIPTOR);
@@ -294,7 +297,7 @@ class ProxyGenerator {
             convertValue(bp, bridgeOrProxyName, param);
         }
         if (generateBridge) {
-            p.visitMethodInsn(INVOKESTATIC, bridgeName, methodInfo.name(), bridgeMethodDescriptor, false);
+            p.visitMethodInsn(INVOKESTATIC, bridgeName, bridgeMethodName, bridgeMethodDescriptor, false);
         }
         bp.visitMethodInsn(INVOKEVIRTUAL, MH_NAME, "invoke", bridgeMethodDescriptor, false);
         convertValue(bp, bridgeOrProxyName, mapping.returnMapping());
