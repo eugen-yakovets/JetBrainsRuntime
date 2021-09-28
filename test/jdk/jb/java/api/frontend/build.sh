@@ -18,12 +18,12 @@
 SRC="$TESTSRC/../../../../../../src"
 PWD="`pwd`"
 # Generate sources
-"$COMPILEJAVA/bin/java" "$SRC/jetbrains.api/templates/Gensrc.java" "$SRC" "$PWD/jbr-api" || exit 1
+"$COMPILEJAVA/bin/java" "$SRC/jetbrains.api/templates/Gensrc.java" "$SRC" "$PWD/jbr-api" "TEST" || exit $?
 # Validate version
-"$COMPILEJAVA/bin/java" "$SRC/jetbrains.api/templates/CheckVersion.java" "$SRC/jetbrains.api" "$PWD/jbr-api" || exit 1
+"$COMPILEJAVA/bin/java" "$SRC/jetbrains.api/templates/CheckVersion.java" "$SRC/jetbrains.api" "$PWD/jbr-api/gensrc" || exit $?
 # Compile API
 find "$SRC/jetbrains.api/src" -name *.java > compile.list
 find jbr-api/gensrc -name *.java >> compile.list
-"$COMPILEJAVA/bin/javac" $TESTJAVACOPTS -d "$TESTCLASSES" @compile.list || exit 1
+"$COMPILEJAVA/bin/javac" $TESTJAVACOPTS -d "$TESTCLASSES" @compile.list || exit $?
 rm "$TESTCLASSES/module-info.class"
 exit 0

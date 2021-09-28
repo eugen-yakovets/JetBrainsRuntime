@@ -74,7 +74,7 @@ public class JBR {
     }
 
     /**
-     * @return JBR API version in form {@code MAJOR.MINOR.PATCH}
+     * @return JBR API version in form {@code JBR.MAJOR.MINOR.PATCH}
      * @implNote This is an API version, which comes with client application,
      * it has nothing to do with JRE it runs on.
      */

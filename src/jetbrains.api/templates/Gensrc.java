@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,22 +38,32 @@ import static java.util.regex.Pattern.compile;
  */
 public class Gensrc {
 
-    private static Path srcroot, module, src, templates, gensrc;
+    private static Path srcroot, src, templates, gensrc;
+    private static String apiVersion;
     private static JBRModules modules;
 
     /**
      * <ul>
      *     <li>$0 - absolute path to {@code JetBrainsRuntime/src} dir</li>
      *     <li>$1 - absolute path to jbr-api output dir ({@code JetBrainsRuntime/build/<conf>/jbr-api})</li>
+     *     <li>$2 - {@code JBR} part of API version</li>
      * </ul>
      */
     public static void main(String[] args) throws IOException {
         srcroot = Path.of(args[0]);
-        module = srcroot.resolve("jetbrains.api");
+        Path module = srcroot.resolve("jetbrains.api");
         src = module.resolve("src");
         templates = module.resolve("templates");
         Path output = Path.of(args[1]);
         gensrc = output.resolve("gensrc");
+        Files.createDirectories(gensrc);
+
+        Properties props = new Properties();
+        props.load(Files.newInputStream(module.resolve("version.properties")));
+        apiVersion = args[2] + "." + props.getProperty("VERSION");
+        Files.writeString(output.resolve("jbr-api.version"), apiVersion,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
         modules = new JBRModules();
         JBR.generate();
     }
@@ -94,7 +105,7 @@ public class Gensrc {
             Files.writeString(output, content, CREATE, WRITE, TRUNCATE_EXISTING);
         }
 
-        private static String generate(String content) throws IOException {
+        private static String generate(String content) {
             Service[] interfaces = findPublicServiceInterfaces();
             List<String> statements = new ArrayList<>();
             for (Service i : interfaces) statements.add(generateMethodsForService(i));
@@ -103,14 +114,8 @@ public class Gensrc {
                     modules.services.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(", ")));
             content = content.replace("/*KNOWN_PROXIES*/",
                     modules.proxies.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining(", ")));
-            content = content.replace("/*API_VERSION*/", getApiVersion());
+            content = content.replace("/*API_VERSION*/", apiVersion);
             return content;
-        }
-
-        private static String getApiVersion() throws IOException {
-            Properties props = new Properties();
-            props.load(Files.newInputStream(module.resolve("version.properties")));
-            return props.getProperty("VERSION");
         }
 
         private static Service[] findPublicServiceInterfaces() {

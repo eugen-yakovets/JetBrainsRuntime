@@ -15,43 +15,44 @@
  */
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
+import java.util.function.Function;
 
 public class CheckVersion {
+    private static final Map<String, Function<String, String>> FILE_TRANSFORMERS = Map.of(
+            "com/jetbrains/JBR.java", c -> {
+                // Exclude API version from hash calculation
+                int versionMethodIndex = c.indexOf("getApiVersion()");
+                int versionStartIndex = c.indexOf("\"", versionMethodIndex) + 1;
+                int versionEndIndex = c.indexOf("\"", versionStartIndex);
+                return c.substring(0, versionStartIndex) + c.substring(versionEndIndex);
+            }
+    );
 
     private static Path module, gensrc;
 
     /**
      * <ul>
      *     <li>$0 - absolute path to {@code JetBrainsRuntime/src/jetbrains.api} dir</li>
-     *     <li>$1 - absolute path to jbr-api output dir ({@code JetBrainsRuntime/build/<conf>/jbr-api})</li>
+     *     <li>$1 - absolute path to gensrc dir ({@code JetBrainsRuntime/build/<conf>/jbr-api/gensrc})</li>
      * </ul>
      */
     public static void main(String[] args) throws IOException, NoSuchAlgorithmException {
         module = Path.of(args[0]);
-        Path output = Path.of(args[1]);
-        gensrc = output.resolve("gensrc");
-        Path bin = output.resolve("bin");
+        gensrc = Path.of(args[1]);
         Path versionFile = module.resolve("version.properties");
 
         Properties props = new Properties();
         props.load(Files.newInputStream(versionFile));
         String hash = SourceHash.calculate();
 
-        if (hash.equals(props.getProperty("HASH"))) {
-            Files.createDirectories(bin);
-            Files.writeString(bin.resolve("jbr-api.version"), props.getProperty("VERSION"),
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            return;
-        }
+        if (hash.equals(props.getProperty("HASH"))) return;
         System.err.println("================================================================================");
         System.err.println("Error: jetbrains.api code was changed, update hash and increment version in " + versionFile);
         System.err.println("HASH = " + hash);
@@ -76,7 +77,7 @@ public class CheckVersion {
         private static void calculate(Path dir, MessageDigest hash) throws IOException {
             for (Entry f : findFiles(dir)) {
                 hash.update(f.name.getBytes(StandardCharsets.UTF_8));
-                hash.update(Files.readString(f.path).getBytes(StandardCharsets.UTF_8));
+                hash.update(f.content.getBytes(StandardCharsets.UTF_8));
             }
         }
 
@@ -85,15 +86,21 @@ public class CheckVersion {
             FileVisitor<Path> fileFinder = new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    Path abs = file.toAbsolutePath();
-                    Path rel = dir.relativize(abs);
-                    StringBuilder name = new StringBuilder();
-                    for (int i = 0; i < rel.getNameCount(); i++) {
-                        if (!name.isEmpty()) name.append('/');
-                        name.append(rel.getName(i));
+                    try {
+                        Path abs = file.toAbsolutePath();
+                        Path rel = dir.relativize(abs);
+                        StringBuilder name = new StringBuilder();
+                        for (int i = 0; i < rel.getNameCount(); i++) {
+                            if (!name.isEmpty()) name.append('/');
+                            name.append(rel.getName(i));
+                        }
+                        String content = Files.readString(abs);
+                        String fileName = name.toString();
+                        files.add(new Entry(FILE_TRANSFORMERS.getOrDefault(fileName, c -> c).apply(content), fileName));
+                        return FileVisitResult.CONTINUE;
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
                     }
-                    files.add(new Entry(abs, name.toString()));
-                    return FileVisitResult.CONTINUE;
                 }
             };
             Files.walkFileTree(dir, fileFinder);
@@ -101,6 +108,6 @@ public class CheckVersion {
             return files;
         }
 
-        private record Entry(Path path, String name) {}
+        private record Entry(String content, String name) {}
     }
 }

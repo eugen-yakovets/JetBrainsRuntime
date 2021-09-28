@@ -24,12 +24,18 @@ JBR_API_SRC_DIR          := $(JBR_API_ROOT_DIR)/src
 JBR_API_OUTPUT_DIR := $(OUTPUTDIR)/jbr-api
 JBR_API_GENSRC_DIR := $(JBR_API_OUTPUT_DIR)/gensrc
 JBR_API_BIN_DIR    := $(JBR_API_OUTPUT_DIR)/bin
-JBR_API_VERSION_FILE := $(JBR_API_BIN_DIR)/jbr-api.version
+JBR_API_VERSION_PROPERTIES := $(JBR_API_ROOT_DIR)/version.properties
 
 JBR_API_GENSRC_SOURCES := $(call FindFiles, $(JBR_API_GENSRC_TEMPLATES))
 JBR_API_GENSRC_FILES := $(foreach f, $(call FindFiles, $(JBR_API_GENSRC_TEMPLATES)/com), \
     $(JBR_API_GENSRC_DIR)/$(call RelativePath, $f, $(JBR_API_GENSRC_TEMPLATES)))
 JBR_API_SRC_FILES := $(call FindFiles, $(JBR_API_SRC_DIR))
+
+ifeq ($(JBR_API_JBR_VERSION),)
+  JBR_API_JBR_VERSION := <DEVELOPMENT>
+else
+  .PHONY: $(JBR_API_VERSION_PROPERTIES)
+endif
 
 ARCHIVE_BUILD_JBR_API_BIN := $(JBR_API_BIN_DIR)
 $(eval $(call SetupJavaCompilation, BUILD_JBR_API, \
@@ -50,19 +56,24 @@ $(eval $(call SetupJarArchive, BUILD_JBR_API_SOURCES_JAR, \
     BIN := $(JBR_API_BIN_DIR), \
 ))
 
-$(JBR_API_GENSRC_FILES): $(JBR_API_GENSRC_SOURCES) $(JBR_API_SRC_FILES)
+$(JBR_API_GENSRC_FILES): $(JBR_API_GENSRC_SOURCES) $(JBR_API_SRC_FILES) $(JBR_API_VERSION_PROPERTIES)
 	$(ECHO) Generating sources for JBR API
 	$(JAVA_CMD) $(JAVA_FLAGS_SMALL) "$(JBR_API_GENSRC_TEMPLATES)/Gensrc.java" \
-	    "$(TOPDIR)/src" "$(JBR_API_OUTPUT_DIR)"
+	    "$(TOPDIR)/src" "$(JBR_API_OUTPUT_DIR)" "$(JBR_API_JBR_VERSION)"
 
-$(JBR_API_VERSION_FILE): $(JBR_API_GENSRC_FILES) $(JBR_API_SRC_FILES)
+jbr-api-check-version: $(JBR_API_GENSRC_FILES) $(JBR_API_SRC_FILES) $(JBR_API_VERSION_PROPERTIES)
 	$(JAVA_CMD) $(JAVA_FLAGS_SMALL) "$(JBR_API_GENSRC_TEMPLATES)/CheckVersion.java" \
-	    "$(JBR_API_ROOT_DIR)" "$(JBR_API_OUTPUT_DIR)"
+	    "$(JBR_API_ROOT_DIR)" "$(JBR_API_GENSRC_DIR)"
 
-copy-versioned-jbr-api-archives: $(BUILD_JBR_API) $(BUILD_JBR_API_SOURCES_JAR) $(JBR_API_VERSION_FILE)
-	$(CP) $(JBR_API_OUTPUT_DIR)/jbr-api.jar $(JBR_API_OUTPUT_DIR)/jbr-api-`$(CAT) $(JBR_API_VERSION_FILE)`.jar
-	$(CP) $(JBR_API_OUTPUT_DIR)/jbr-api-sources.jar $(JBR_API_OUTPUT_DIR)/jbr-api-`$(CAT) $(JBR_API_VERSION_FILE)`-sources.jar
+jbr-api: $(BUILD_JBR_API) $(BUILD_JBR_API_SOURCES_JAR) jbr-api-check-version
 
-jbr-api: $(BUILD_JBR_API) $(BUILD_JBR_API_SOURCES_JAR) copy-versioned-jbr-api-archives
+.PHONY: jbr-api jbr-api-check-version
 
-.PHONY: jbr-api copy-versioned-jbr-api-archives
+ifneq ($(JBR_API_CONF_FILE),)
+  $(JBR_API_CONF_FILE): $(JBR_API_GENSRC_FILES)
+	$(ECHO) "VERSION=`$(CAT) $(JBR_API_OUTPUT_DIR)/jbr-api.version`" > $(JBR_API_CONF_FILE)
+	$(ECHO) "JAR=$(JBR_API_OUTPUT_DIR)/jbr-api.jar" >> $(JBR_API_CONF_FILE)
+	$(ECHO) "SOURCES_JAR=$(JBR_API_OUTPUT_DIR)/jbr-api-sources.jar" >> $(JBR_API_CONF_FILE)
+  jbr-api: $(JBR_API_CONF_FILE)
+  .PHONY: $(JBR_API_CONF_FILE)
+endif
