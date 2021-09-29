@@ -20,7 +20,7 @@ PWD="`pwd`"
 # Generate sources
 "$COMPILEJAVA/bin/java" "$SRC/jetbrains.api/templates/Gensrc.java" "$SRC" "$PWD/jbr-api" "TEST" || exit $?
 # Validate version
-"$COMPILEJAVA/bin/java" "$SRC/jetbrains.api/templates/CheckVersion.java" "$SRC/jetbrains.api" "$PWD/jbr-api/gensrc" || exit $?
+"$COMPILEJAVA/bin/java" "$SRC/jetbrains.api/templates/CheckVersion.java" "$SRC/jetbrains.api" "$PWD/jbr-api/gensrc" "true" || exit $?
 # Compile API
 find "$SRC/jetbrains.api/src" -name *.java > compile.list
 find jbr-api/gensrc -name *.java >> compile.list

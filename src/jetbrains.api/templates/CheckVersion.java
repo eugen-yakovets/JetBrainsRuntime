@@ -41,11 +41,13 @@ public class CheckVersion {
      * <ul>
      *     <li>$0 - absolute path to {@code JetBrainsRuntime/src/jetbrains.api} dir</li>
      *     <li>$1 - absolute path to gensrc dir ({@code JetBrainsRuntime/build/<conf>/jbr-api/gensrc})</li>
+     *     <li>$2 - true if hash mismatch is an error</li>
      * </ul>
      */
     public static void main(String[] args) throws IOException, NoSuchAlgorithmException {
         module = Path.of(args[0]);
         gensrc = Path.of(args[1]);
+        boolean error = args[2].equals("true");
         Path versionFile = module.resolve("version.properties");
 
         Properties props = new Properties();
@@ -54,10 +56,16 @@ public class CheckVersion {
 
         if (hash.equals(props.getProperty("HASH"))) return;
         System.err.println("================================================================================");
-        System.err.println("Error: jetbrains.api code was changed, update hash and increment version in " + versionFile);
+        if (error) {
+            System.err.println("Error: jetbrains.api code was changed, hash and API version must be updated in " + versionFile);
+        } else {
+            System.err.println("Warning: jetbrains.api code was changed, " +
+                    "update hash and increment API version in " + versionFile + " before committing these changes");
+        }
         System.err.println("HASH = " + hash);
+        if (!error) System.err.println("DO NOT COMMIT YOUR CHANGES WITH THIS WARNING");
         System.err.println("================================================================================");
-        System.exit(-1);
+        if (error) System.exit(-1);
     }
 
     private static class SourceHash {
