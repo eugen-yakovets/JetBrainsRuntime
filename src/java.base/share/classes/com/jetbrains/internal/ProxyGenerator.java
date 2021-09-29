@@ -51,6 +51,10 @@ class ProxyGenerator {
     private static final String MH_NAME = "java/lang/invoke/MethodHandle";
     private static final String MH_DESCRIPTOR = "Ljava/lang/invoke/MethodHandle;";
     private static final String CONVERSION_DESCRIPTOR = "(Ljava/lang/Object;)Ljava/lang/Object;";
+    /**
+     * Print warnings about usage of deprecated interfaces and methods to {@link System#err}.
+     */
+    private static final boolean LOG_DEPRECATED = System.getProperty("jetbrains.api.logDeprecated", "true").equalsIgnoreCase("true");
 
     private static final AtomicInteger nameCounter = new AtomicInteger();
 
@@ -191,6 +195,9 @@ class ProxyGenerator {
         }
         MethodVisitor p = proxyWriter.visitMethod(ACC_PRIVATE, "<init>", "(" +
                 (info.target == null ? "" : OBJECT_DESCRIPTOR) + ")V", null, null);
+        if (LOG_DEPRECATED && info.interFace.isAnnotationPresent(Deprecated.class)) {
+            logDeprecated(p, "Warning: using deprecated JBR API interface " + info.interFace.getName());
+        }
         p.visitVarInsn(ALOAD, 0);
         if (info.target != null) {
             p.visitInsn(DUP);
@@ -274,6 +281,10 @@ class ProxyGenerator {
                 methodInfo.descriptor(), methodInfo.genericSignature(), methodInfo.exceptionNames());
         MethodVisitor b = bridgeWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, bridgeMethodName,
                 bridgeMethodDescriptor, null, null);
+        if (LOG_DEPRECATED && interfaceMethod.isAnnotationPresent(Deprecated.class)) {
+            logDeprecated(p, "Warning: using deprecated JBR API method " +
+                    interfaceMethod.getDeclaringClass().getName() + "#" + interfaceMethod.getName());
+        }
         MethodVisitor bp = generateBridge ? b : p;
         bp.visitFieldInsn(GETSTATIC, bridgeOrProxyName, handleName, MH_DESCRIPTOR);
         if (passInstance) {

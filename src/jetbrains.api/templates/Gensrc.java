@@ -129,8 +129,18 @@ public class Gensrc {
                             String content = Files.readString(path);
                             int indexOfDeclaration = content.indexOf("public interface " + name);
                             if (indexOfDeclaration == -1) return null;
-                            Matcher javadoc = javadocPattern.matcher(content.substring(0, indexOfDeclaration));
-                            return new Service(name, javadoc.find() ? javadoc.group(1) : "");
+                            Matcher javadocMatcher = javadocPattern.matcher(content.substring(0, indexOfDeclaration));
+                            String javadoc;
+                            int javadocEnd;
+                            if (javadocMatcher.find()) {
+                                javadoc = javadocMatcher.group(1);
+                                javadocEnd = javadocMatcher.end();
+                            } else {
+                                javadoc = "";
+                                javadocEnd = 0;
+                            }
+                            return new Service(name, javadoc,
+                                    content.substring(javadocEnd, indexOfDeclaration).contains("@Deprecated"));
                         } catch (IOException e) {
                             throw new UncheckedIOException(e);
                         }
@@ -140,30 +150,30 @@ public class Gensrc {
 
         private static String generateMethodsForService(Service service) {
             return """
-                    private static class $__Holder {
+                    private static class $__Holder {<DEPRECATED>
                         private static final $ INSTANCE = api != null ? api.getService($.class) : null;
                     }
                     /**
                      * @return true if current runtime has implementation for all methods in {@link $}
                      * and its dependencies (can fully implement given service).
                      * @see #get$()
-                     */
+                     */<DEPRECATED>
                     public static boolean is$Supported() {
                         return $__Holder.INSTANCE != null;
                     }
                     /**<JAVADOC>
-                     * @return full implementation of $ service if any, or null otherwise
-                     * @see #is$Supported()
-                     */
+                     * @return full implementation of {@link $} service if any, or {@code null} otherwise
+                     */<DEPRECATED>
                     public static $ get$() {
                         return $__Holder.INSTANCE;
                     }
                     """
                     .replaceAll("\\$", service.name)
-                    .replace("<JAVADOC>", service.javadoc);
+                    .replace("<JAVADOC>", service.javadoc)
+                    .replaceAll("<DEPRECATED>", service.deprecated ? "\n@Deprecated" : "");
         }
 
-        private record Service(String name, String javadoc) {}
+        private record Service(String name, String javadoc, boolean deprecated) {}
     }
 
     /**

@@ -41,7 +41,7 @@ public class JBRApiBootstrap {
      * @return implementation for {@link com.jetbrains.JBR.ServiceApi} interface
      */
     public static synchronized Object bootstrap(MethodHandles.Lookup outerLookup) {
-        if (System.getProperty("jetbrains.api.disable", "false").equals("true")) return null;
+        if (!System.getProperty("jetbrains.api.enabled", "true").equalsIgnoreCase("true")) return null;
         try {
             Class<?> apiInterface = outerLookup.findClass("com.jetbrains.JBR$ServiceApi");
             if (!outerLookup.hasFullPrivilegeAccess() ||

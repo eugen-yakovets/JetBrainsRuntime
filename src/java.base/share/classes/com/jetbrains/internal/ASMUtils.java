@@ -57,6 +57,14 @@ class ASMUtils {
         p.visitMaxs(-1, -1);
     }
 
+    public static void logDeprecated(MethodVisitor writer, String message) {
+        writer.visitTypeInsn(NEW, "java/lang/Exception");
+        writer.visitInsn(DUP);
+        writer.visitLdcInsn(message);
+        writer.visitMethodInsn(INVOKESPECIAL, "java/lang/Exception", "<init>", "(Ljava/lang/String;)V", false);
+        writer.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Exception", "printStackTrace", "()V", false);
+    }
+
     protected record InternalMethodInfo(String name, String descriptor, String genericSignature,
                                         String[] exceptionNames) {}
 
