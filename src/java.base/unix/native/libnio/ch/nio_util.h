@@ -49,6 +49,8 @@
 #endif
 #endif
 
+extern JavaVM *jvm;
+
 /* NIO utility procedures */
 
 

@@ -45,8 +45,8 @@ class BsdFileSystem extends UnixFileSystem {
     public WatchService newWatchService()
         throws IOException
     {
-        // use polling implementation until we implement a BSD/kqueue one
-        return new PollingWatchService();
+        //return new PollingWatchService();
+        return new MacOSXWatchService();
     }
 
     // lazy initialization of the list of supported attribute views

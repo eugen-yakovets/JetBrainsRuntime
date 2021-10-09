@@ -35,7 +35,7 @@
  * If a memory error occurs, and OutOfMemoryError is thrown and
  * NULL is returned.
  */
-static CFStringRef toCFString(JNIEnv *env, jstring javaString)
+CFStringRef toCFString(JNIEnv *env, jstring javaString)
 {
     if (javaString == NULL) {
         return NULL;

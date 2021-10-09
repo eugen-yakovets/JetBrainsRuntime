@@ -26,11 +26,15 @@
 #include "jni.h"
 #include "jvm.h"
 #include "jni_util.h"
+#include "nio_util.h"
+
+JavaVM *jvm;
 
 JNIEXPORT jint JNICALL
 DEF_JNI_OnLoad(JavaVM *vm, void *reserved)
 {
     JNIEnv *env;
+    jvm = vm;
 
     if ((*vm)->GetEnv(vm, (void**) &env, JNI_VERSION_1_2) != JNI_OK) {
         return JNI_EVERSION; /* JNI version not supported */
