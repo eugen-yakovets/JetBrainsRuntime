@@ -61,10 +61,15 @@ class MacOSXWatchService extends AbstractWatchService {
 
             final CFRunLoopThread runLoop = new CFRunLoopThread();
 
+            /*
+            return  kFSEventStreamCreateFlagNoDefer
+                    | kFSEventStreamCreateFlagFileEvents
+                    | kFSEventStreamCreateFlagWatchRoot;
+             */
             final long eventStreamRef = MacOSXWatchService.createNewEventStreamFor(
                     dir.toString(),
                     WatchModifier.sensitivityOf(modifierSet),
-                    getFSEventStreamCreateFlagsFor(eventSet, modifierSet),
+                    kFSEventStreamCreateFlagWatchRoot,
                     runLoop);
 
             if (eventStreamRef == 0) {
@@ -85,7 +90,7 @@ class MacOSXWatchService extends AbstractWatchService {
 
     void cancel(final MacOSXWatchKey watchKey) {
         synchronized (runLoops) {
-            Optional<CFRunLoopThread> runLoop = runLoops.stream().filter(r -> r.getWatchKey() == watchKey).findFirst();
+            final Optional<CFRunLoopThread> runLoop = runLoops.stream().filter(r -> r.getWatchKey() == watchKey).findFirst();
             assert (runLoop.isPresent());
 
             runLoop.get().close(); // also invalidates the key
@@ -123,6 +128,12 @@ class MacOSXWatchService extends AbstractWatchService {
 
             synchronized (isStoppedLock) {
                 if (isStopped) return;
+
+                watchKey.populateDirectoriesCache();
+
+                // we can get cancelled if the watch root is no longer readable
+                if (isStopped) return;
+
                 runLoopRef = CFRunLoopGetCurrent();
                 scheduleEventLoop(watchKey.getEventStreamRef());
             }
@@ -145,8 +156,8 @@ class MacOSXWatchService extends AbstractWatchService {
 
         private void callback(final long eventStreamRef, final long numEvents,
                               final String[] paths, final long eventFlagsPtr, final long eventIdsPtr) {
-            assert(eventStreamRef == watchKey.getEventStreamRef());
             assert(watchKey != null);
+            assert(eventStreamRef == watchKey.getEventStreamRef());
 
             if (tracingEnabled) System.out.println("numEvents=" + numEvents);
             if (numEvents > 0 && paths != null) {
@@ -172,12 +183,6 @@ class MacOSXWatchService extends AbstractWatchService {
     private void checkIsOpen() {
         if (!isOpen())
             throw new ClosedWatchServiceException();
-    }
-
-    private int getFSEventStreamCreateFlagsFor(final EnumSet<FSEventKind> eventSet, final EnumSet<WatchModifier> modifierSet) {
-        return    kFSEventStreamCreateFlagNoDefer
-                | kFSEventStreamCreateFlagFileEvents
-                | kFSEventStreamCreateFlagWatchRoot;
     }
 
     private void checkPath(UnixPath dir) throws IOException {
@@ -271,14 +276,16 @@ class MacOSXWatchService extends AbstractWatchService {
     }
 
     private static class MacOSXWatchKey extends AbstractWatchKey {
-        private final EnumSet<FSEventKind>   eventsToWatch;
-        private final boolean                watchFileTree;
+        private final EnumSet<FSEventKind> eventsToWatch;
+        private final boolean watchFileTree;
 
         private final Object eventStreamRefLock = new Object();
         private long eventStreamRef; // FSEventStreamRef as returned by FSEventStreamCreate()
 
         private final Path realRootPath;
         private final int realRootPathLength;
+
+        private final Map<Path, DirectoryCache> dirsCache;
 
         MacOSXWatchKey(final UnixPath dir, final MacOSXWatchService watchService,
                        EnumSet<FSEventKind> eventsToWatch, EnumSet<WatchModifier> modifierSet,
@@ -290,6 +297,7 @@ class MacOSXWatchService extends AbstractWatchService {
             this.eventStreamRef = eventStreamRef;
             this.realRootPath = dir.toRealPath().normalize();
             this.realRootPathLength = realRootPath.toString().length() + 1;
+            this.dirsCache = new HashMap<>(watchFileTree ? 256 : 1);
             thread.setWatchKey(this);
         }
 
@@ -309,18 +317,97 @@ class MacOSXWatchService extends AbstractWatchService {
         private static final long kFSEventStreamEventFlagItemIsDir = 0x00020000;
         private static final long kFSEventStreamEventFlagItemIsSymlink = 0x00040000;
 
+        private static void dumpFlags(int flags) {
+            final StringBuilder flagsStrBuilder = new StringBuilder();
+            if ((flags & kFSEventStreamEventFlagMustScanSubDirs) != 0) {
+                flagsStrBuilder.append("MustScanSubDirs ");
+            }
+            if ((flags & kFSEventStreamEventFlagUserDropped) != 0) {
+                flagsStrBuilder.append("UserDropped ");
+            }
+
+            if ((flags & kFSEventStreamEventFlagKernelDropped) != 0) {
+                flagsStrBuilder.append("KernelDropped ");
+            }
+
+            if ((flags & kFSEventStreamEventFlagRootChanged) != 0) {
+                flagsStrBuilder.append(("RootChanged "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagRootChanged) != 0) {
+                flagsStrBuilder.append(("RootChanged "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagRootChanged) != 0) {
+                flagsStrBuilder.append(("RootChanged "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemCreated) != 0) {
+                flagsStrBuilder.append(("ItemCreated "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemRemoved) != 0) {
+                flagsStrBuilder.append(("ItemRemoved "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemInodeMetaMod) != 0) {
+                flagsStrBuilder.append(("InodeMetaMod "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemRenamed) != 0) {
+                flagsStrBuilder.append(("ItemRenamed "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemModified) != 0) {
+                flagsStrBuilder.append(("ItemModified "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemFinderInfoMod) != 0) {
+                flagsStrBuilder.append(("FinderInfoMod "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemChangeOwner) != 0) {
+                flagsStrBuilder.append(("ItemChangeOwner "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemXattrMod) != 0) {
+                flagsStrBuilder.append(("ItemXattrMod "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemIsFile) != 0) {
+                flagsStrBuilder.append(("ItemIsFile "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemIsDir) != 0) {
+                flagsStrBuilder.append(("ItemIsDir "));
+            }
+
+            if ((flags & kFSEventStreamEventFlagItemIsSymlink) != 0) {
+                flagsStrBuilder.append(("ItemIsSymlink "));
+            }
+
+            System.out.printf("Flags: 0x%1$08X, %2$s\n", flags, flagsStrBuilder);
+        }
+
         void handleEvents(final String[] paths, long eventFlagsPtr) {
-            for(final String pathName : paths) {
+            if (paths == null) {
+                reportOverflow(null);
+                return;
+            }
+
+            final Set<Path> dirsToScan = new HashSet<>(paths.length);
+            final Set<Path> dirsToScanRecursively = new HashSet<>();
+
+            for (final String pathName : paths) {
                 // path is absolute, but we need to report events relative to the watch root
                 Path path = null;
                 if (pathName != null) {
                     final String relativePathName = (pathName.length() > realRootPathLength)
                             ? pathName.substring(realRootPathLength)
-                            : pathName;
+                            : "";
                     path = Path.of(relativePathName);
                     if (tracingEnabled) System.out.println("Event path name: " + path);
                 }
-                // TODO: what to do with symlinks? should we report events under symlinked dirs?
 
                 if (!watchFileTree && path != null) {
                     if (path.getNameCount() > 1) {
@@ -329,79 +416,124 @@ class MacOSXWatchService extends AbstractWatchService {
                 }
 
                 final int flags = unsafe.getInt(eventFlagsPtr);
-                if (tracingEnabled) System.out.printf("event flags 0x%1$08X\n", flags);
+                if (tracingEnabled) dumpFlags(flags);
 
-                if ((flags & kFSEventStreamEventFlagMustScanSubDirs) != 0) {
-                    if (tracingEnabled) {
-                        if ((flags & kFSEventStreamEventFlagUserDropped) != 0) {
-                            System.out.println("OVERFLOW because of UserDropped");
-                        } else if ((flags & kFSEventStreamEventFlagKernelDropped) != 0) {
-                            System.out.println("OVERFLOW because of KernelDropped");
-                        }
-                        else {
-                            System.out.println("OVERFLOW for unspecified reason");
-                        }
-                    }
-                    signalEvent(StandardWatchEventKinds.OVERFLOW, path);
-                }
-
-                if (pathName != null) {
-                    // TODO: Path that is the relative path between the directory registered with the watch service
+                // TODO: when moving a directory hierarchy, we only get one event for the parent and no scan-sub-dirs
+                if (path != null) {
                     if ((flags & kFSEventStreamEventFlagRootChanged) != 0) {
                         System.out.println("watch root changed, path = " + path);
-                        cancel();
-                    }
-
-                    boolean alsoReportModifyForParent = false;
-                    if ((flags & kFSEventStreamEventFlagItemCreated) != 0
-                            && (flags & kFSEventStreamEventFlagItemModified) == 0
-                            && (flags & kFSEventStreamEventFlagItemRemoved) == 0) {
-                        if (tracingEnabled) System.out.println("Created: " + path);
-                        signalEvent(StandardWatchEventKinds.ENTRY_CREATE, path);
-                        alsoReportModifyForParent = true;
-                    }
-
-                    if ((flags & kFSEventStreamEventFlagItemRemoved) != 0
-                            && (flags & kFSEventStreamEventFlagItemCreated) == 0) {
-                        if (tracingEnabled) System.out.println("Removed: " + path);
-                        signalEvent(StandardWatchEventKinds.ENTRY_DELETE, path);
-                        alsoReportModifyForParent = true;
-                    }
-
-                    if ((flags & kFSEventStreamEventFlagItemRenamed) != 0) {
-                        // Identical "renamed" events are reported in sequence: first for deleted and next for created
-                        if (tracingEnabled) System.out.println("Renamed: " + path);
-                        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
-                            signalEvent(StandardWatchEventKinds.ENTRY_CREATE, path);
-                            // TODO: this one isn't reported
+                        if (Files.exists(realRootPath)) {
+                            dirsToScan.clear();
+                            dirsToScanRecursively.clear();
+                            if (watchFileTree) {
+                                dirsToScanRecursively.add(realRootPath);
+                            } else {
+                                dirsToScan.add(realRootPath);
+                            }
+                            break;
                         } else {
-                            signalEvent(StandardWatchEventKinds.ENTRY_DELETE, path);
+                            cancel();
                         }
-                        alsoReportModifyForParent = true;
+                    } else if ((flags & kFSEventStreamEventFlagMustScanSubDirs) != 0 && watchFileTree) {
+                        dirsToScanRecursively.add(path);
+                    } else {
+                        dirsToScan.add(path);
                     }
+                } else {
+                    reportOverflow(null);
+                }
 
-                    if ((flags & kFSEventStreamEventFlagItemModified) != 0
-                            && (flags & kFSEventStreamEventFlagItemCreated) == 0) {
-                        if (tracingEnabled) System.out.println("Modified: " + path);
-                        // Careful, reported with kFSEventStreamEventFlagItemCreated flag ALSO set
-                        signalEvent(StandardWatchEventKinds.ENTRY_MODIFY, path);
+                eventFlagsPtr += SIZEOF_FS_EVENT_STREAM_EVENT_FLAGS;
+            }
+
+            for (final Path recurseDir : dirsToScanRecursively) {
+                // This supposedly happens very rarely, so we don't optimize for this case
+                dirsToScan.removeIf(dir -> dir.startsWith(recurseDir));
+
+                scanDirectory(recurseDir, true);
+            }
+
+            for (final Path dir : dirsToScan) {
+                scanDirectory(dir, false);
+            }
+        }
+
+        private void reportCreated(final Path dir) {
+            if (eventsToWatch.contains(FSEventKind.CREATE)) {
+                signalEvent(StandardWatchEventKinds.ENTRY_CREATE, dir);
+            }
+        }
+
+        private void reportDeleted(final Path dir) {
+            if (eventsToWatch.contains(FSEventKind.DELETE)) {
+                signalEvent(StandardWatchEventKinds.ENTRY_DELETE, dir);
+            }
+        }
+
+        private void reportModified(final Path dir) {
+            if (eventsToWatch.contains(FSEventKind.MODIFY)) {
+                signalEvent(StandardWatchEventKinds.ENTRY_MODIFY, dir);
+            }
+        }
+
+        private void reportOverflow(Path dir) {
+            if (eventsToWatch.contains(FSEventKind.OVERFLOW)) {
+                signalEvent(StandardWatchEventKinds.OVERFLOW, dir);
+            }
+        }
+
+        private void scanDirectory(final Path dir, final boolean recurse) {
+            if (tracingEnabled) System.out.println("Scanning directory " + dir);
+
+            // TODO: how to report MODIFY for the parent when there wasa CREATE in child? Should we?
+            if (!recurse) {
+                final DirectoryCache dirCache = dirsCache.get(dir);
+                if (dirCache == null) {
+                    final DirectoryCache newDirCache = DirectoryCache.of(this, realRootPath, dir);
+                    if (newDirCache != null) {
+                        dirsCache.put(dir, newDirCache);
+                        // The corresponding CREATE event will be signalled by the parent directory
                     }
-
-                    if ((flags & kFSEventStreamEventFlagItemInodeMetaMod) != 0
-                            || (flags & kFSEventStreamEventFlagItemChangeOwner) != 0
-                            || (flags & kFSEventStreamEventFlagItemFinderInfoMod) != 0
-                            || (flags & kFSEventStreamEventFlagItemXattrMod) != 0) {
-                        if (tracingEnabled) System.out.println("Modified meta: " + path);
-                        signalEvent(StandardWatchEventKinds.ENTRY_MODIFY, path);
-                    }
-
-                    if (alsoReportModifyForParent) {
-                        // TODO: collapse "modify" for parents of renamed
-                        final Path parentPath = path.getParent();
-                        signalEvent(StandardWatchEventKinds.ENTRY_MODIFY, parentPath);
+                } else {
+                    final boolean keep = dirCache.update(this, realRootPath, dir);
+                    if (!keep) {
+                        dirsCache.remove(dir);
+                        // The corresponding DELETE event will be signalled by the parent directory
                     }
                 }
-                eventFlagsPtr += SIZEOF_FS_EVENT_STREAM_EVENT_FLAGS;
+            } else {
+                try {
+                    Files.find(dir, Integer.MAX_VALUE, (filePath, fileAttr) -> fileAttr.isDirectory())
+                            .forEach(p -> scanDirectory(p, false));
+                } catch (IOException e) {
+                    dirsCache.remove(dir);
+                }
+            }
+        }
+
+        void populateDirectoriesCache() {
+            if (tracingEnabled) System.out.println("Starting to populate dirs cache");
+
+            if (watchFileTree) {
+                try {
+                    Files.find(realRootPath, Integer.MAX_VALUE, (filePath, fileAttr) -> fileAttr.isDirectory())
+                            .forEach(dir -> {
+                                final Path relativePath = realRootPath.relativize(dir);
+                                final DirectoryCache newDirCache = DirectoryCache.of(null, realRootPath, relativePath);
+                                if (newDirCache != null) {
+                                    dirsCache.put(relativePath, newDirCache);
+                                }
+                            });
+                } catch (IOException e) {
+                    cancel();
+                }
+            } else {
+                final DirectoryCache newDirCache = DirectoryCache.of(null, realRootPath, Path.of(""));
+                if (newDirCache != null) {
+                    dirsCache.put(Path.of(""), newDirCache);
+                } else {
+                    cancel();
+                }
             }
         }
 
@@ -416,7 +548,7 @@ class MacOSXWatchService extends AbstractWatchService {
         public void cancel() {
             if (!isValid()) return;
 
-            ((MacOSXWatchService)watcher()).cancel(this);
+            ((MacOSXWatchService) watcher()).cancel(this);
         }
 
         void invalidate() {
@@ -430,8 +562,131 @@ class MacOSXWatchService extends AbstractWatchService {
 
         long getEventStreamRef() {
             synchronized (eventStreamRefLock) {
-                assert(isValid());
+                assert (isValid());
                 return eventStreamRef;
+            }
+        }
+
+        private static class DirectoryCache {
+            private final Map<Path, Entry> files;
+            private long currentTick;
+            private DirectoryCache() {
+                files = new HashMap<>();
+            }
+
+            static DirectoryCache of(final MacOSXWatchKey watchKey, final Path realRootPath, final Path directory) {
+                if (tracingEnabled) System.out.println("Creating directory cache for " + directory);
+
+                DirectoryStream<Path> directoryStream;
+                try {
+                    directoryStream = Files.newDirectoryStream(realRootPath.resolve(directory));
+                } catch (IOException ignore) {
+                    return null;
+                }
+
+                DirectoryCache cache = new DirectoryCache();
+                try {
+                    for (final Path file: directoryStream) {
+                        try {
+                            System.out.println("Directory stream: " + file);
+                            final long lastModified = Files.getLastModifiedTime(file, LinkOption.NOFOLLOW_LINKS).toMillis();
+                            cache.files.put(file.getFileName(), new Entry(lastModified, 0));
+
+                            if (watchKey != null) {
+                                watchKey.reportCreated(directory.resolve(file.getFileName()));
+                            }
+                        } catch (IOException ignore) {}
+                    }
+                } catch (DirectoryIteratorException ignore) {
+                } finally {
+                    try {
+                        directoryStream.close();
+                    } catch (IOException ignore) {}
+                }
+
+                return cache;
+            }
+
+            boolean update(final MacOSXWatchKey watchKey, final Path realRootPath, final Path directory) {
+                currentTick++;
+                if (tracingEnabled) System.out.println("Directory cache update for " + directory + ", tick " + currentTick);
+
+                DirectoryStream<Path> stream;
+                try {
+                    stream = Files.newDirectoryStream(realRootPath.resolve(directory));
+                } catch (IOException ignore) {
+                    if (watchKey.eventsToWatch.contains(FSEventKind.DELETE)) {
+                        files.keySet().forEach(
+                                file -> watchKey.reportDeleted(directory.resolve(file)));
+                    }
+                    return false; // this directory cache should be dropped entirely
+                }
+
+                try {
+                    for (final Path file: stream) {
+                        long lastModified = 0L;
+                        try {
+                            lastModified = Files.getLastModifiedTime(file, LinkOption.NOFOLLOW_LINKS).toMillis();
+                        } catch (IOException ignore) {
+                            // If just deleted, we'll notice that on the next update.
+                        }
+
+                        final Path fileName = file.getFileName();
+                        final Entry entry = files.get(fileName);
+                        final boolean isNewFile = (entry == null);
+                        if (isNewFile) {
+                            // TODO: need to update parent's timestamp and/or file update for the parent
+                            files.put(fileName, new Entry(lastModified, currentTick));
+                            watchKey.reportCreated(directory.resolve(fileName));
+                        } else {
+                            if (entry.isModified(lastModified)) {
+                                watchKey.reportModified(directory.resolve(fileName));
+                            }
+                            entry.update(lastModified, currentTick);
+                        }
+                    }
+                } catch (DirectoryIteratorException ignore) {
+                    watchKey.reportOverflow(directory);
+                    return false;
+                } finally {
+                    try {
+                        stream.close();
+                    } catch (IOException ignore) {
+                    }
+                }
+
+                final Iterator<Map.Entry<Path, Entry>> it = files.entrySet().iterator();
+                while (it.hasNext()) {
+                    final Map.Entry<Path, Entry> mapEntry = it.next();
+                    final Entry entry = mapEntry.getValue();
+                    if (entry.lastTickCount != currentTick) {
+                        final Path file = mapEntry.getKey();
+                        it.remove();
+
+                        // TODO: need to update parent's timestamp and/or fire an update for the parent
+                        watchKey.reportDeleted(directory.resolve(file));
+                    }
+                }
+
+                return true; // the cache is valid now
+            }
+
+            private static class Entry {
+                private long lastModified;
+                private long lastTickCount;
+
+                Entry(final long lastModified, final long lastTickCount) {
+                    this.lastModified = lastModified;
+                    this.lastTickCount = lastTickCount;
+                }
+
+                boolean isModified(final long lastModified) {
+                    return this.lastModified != lastModified;
+                }
+                void update(final long lastModified, final long lastTickCount) {
+                    this.lastModified = lastModified;
+                    this.lastTickCount = lastTickCount;
+                }
             }
         }
     }
